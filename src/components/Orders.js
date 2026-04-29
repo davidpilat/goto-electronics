@@ -33,7 +33,7 @@ function mapOrderHeader(h) {
 }
 
 function parseCSV(text) {
-  const lines = text.trim().split('\n').filter(l => l.trim())
+  const lines = text.trim().replace(/\r/g, '').split('\n').filter(l => l.trim())
   if (lines.length < 2) return []
   const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim())
   const fieldMap = headers.map(mapOrderHeader)
