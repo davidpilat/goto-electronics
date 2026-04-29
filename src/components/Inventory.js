@@ -186,7 +186,7 @@ export default function Inventory({ inventory, setSyncing }) {
   }
 
   const downloadTemplate = () => {
-    const csv = 'Name,SKU,Serial Number,Condition,Purchase Cost,Parts Cost,Listed Price,Platform,Status,Purchase Date,Notes\niPhone 12 64GB Black,IP12-64-BLK,DNPXC2XY0J4D,Good,150.00,25.00,249.99,eBay,In Stock,2024-01-15,Minor scratch on back'
+    const csv = 'Name,SKU,Serial Number,Color,Condition,Purchase Cost,Parts Cost,Listed Price,Platform,Status,Purchase Date,Notes\niPhone 12 64GB Black,IP12-64-BLK,DNPXC2XY0J4D,Black,Good,150.00,25.00,249.99,eBay,In Stock,2024-01-15,Minor scratch on back'
     const a = document.createElement('a')
     a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
     a.download = 'goto-inventory-template.csv'
