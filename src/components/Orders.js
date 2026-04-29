@@ -5,6 +5,83 @@ const PLATFORMS = ['eBay','Facebook Marketplace','Amazon','Craigslist','OfferUp'
 const today = () => new Date().toISOString().slice(0, 10)
 const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })
 
+const COL_MAP = {
+  order_number: ['order number','order #','order no','order id','transaction id','transaction #'],
+  sale_date: ['sale date','date','sold date','order date','transaction date','date sold'],
+  item_name: ['item name','item','title','name','description','product'],
+  serial_number: ['serial number','serial','serial no','sn','imei','serial#'],
+  platform: ['platform','marketplace','channel','sold on','source'],
+  gross_sale: ['gross sale','gross','sale price','selling price','sold for','revenue','price','total'],
+  selling_fee: ['selling fee','platform fee','ebay fee','amazon fee','fee','fees','seller fee'],
+  ad_fee: ['ad fee','advertising fee','promoted fee','ad cost','promo fee','ads'],
+  shipping_cost: ['shipping cost','shipping','ship cost','postage','shipping paid','shipping expense'],
+  item_cost: ['item cost','cost','cogs','purchase cost','buy price','cost of goods','unit cost'],
+  notes: ['notes','note','comments','comment','memo'],
+}
+
+function normalizeHeader(h) {
+  return h.toLowerCase().trim().replace(/[^a-z0-9 ]/g, '')
+}
+
+function mapOrderHeader(h) {
+  const norm = normalizeHeader(h)
+  for (const [field, aliases] of Object.entries(COL_MAP)) {
+    if (aliases.includes(norm)) return field
+  }
+  return null
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split('\n').filter(l => l.trim())
+  if (lines.length < 2) return []
+  const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim())
+  const fieldMap = headers.map(mapOrderHeader)
+  return lines.slice(1).map(line => {
+    const vals = []
+    let cur = '', inQ = false
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ }
+      else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = '' }
+      else cur += ch
+    }
+    vals.push(cur.trim())
+    const obj = {}
+    fieldMap.forEach((field, i) => {
+      if (field) obj[field] = (vals[i] || '').replace(/^"|"$/g, '').trim()
+    })
+    return obj
+  }).filter(r => r.item_name || r.gross_sale)
+}
+
+function parseDate(str) {
+  if (!str) return new Date().toISOString().slice(0, 10)
+  const clean = str.trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean
+  const mdy = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (mdy) return mdy[3] + '-' + mdy[1].padStart(2,'0') + '-' + mdy[2].padStart(2,'0')
+  const mdy2 = clean.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
+  if (mdy2) return mdy2[3] + '-' + mdy2[1].padStart(2,'0') + '-' + mdy2[2].padStart(2,'0')
+  const d = new Date(clean)
+  if (!isNaN(d)) return d.toISOString().slice(0, 10)
+  return new Date().toISOString().slice(0, 10)
+}
+
+function normalizeOrderRow(row) {
+  return {
+    order_number: row.order_number || null,
+    sale_date: parseDate(row.sale_date),
+    item_name: row.item_name || 'Unknown Item',
+    serial_number: row.serial_number || null,
+    platform: row.platform || 'Other',
+    gross_sale: parseFloat((row.gross_sale||'').replace(/[$,]/g,'')) || 0,
+    selling_fee: parseFloat((row.selling_fee||'').replace(/[$,]/g,'')) || 0,
+    ad_fee: parseFloat((row.ad_fee||'').replace(/[$,]/g,'')) || 0,
+    shipping_cost: parseFloat((row.shipping_cost||'').replace(/[$,]/g,'')) || 0,
+    item_cost: parseFloat((row.item_cost||'').replace(/[$,]/g,'')) || 0,
+    notes: row.notes || null,
+  }
+}
+
 export default function Orders({ orders, inventory, setSyncing }) {
   const [form, setForm] = useState({
     sale_date: today(), order_number: '', item_name: '', inventory_id: '',
@@ -33,6 +110,42 @@ export default function Orders({ orders, inventory, setSyncing }) {
     } else {
       set('serial_number', '')
     }
+  }
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setImportError('')
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const rows = parseCSV(ev.target.result)
+      if (rows.length === 0) {
+        setImportError('No valid rows found. Make sure your CSV has Item Name or Gross Sale columns.')
+        return
+      }
+      setImportPreview(rows.map(normalizeOrderRow))
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  const confirmImport = async () => {
+    if (!importPreview?.length) return
+    setImporting(true); setSyncing(true)
+    for (let i = 0; i < importPreview.length; i += 50) {
+      await supabase.from('orders').insert(importPreview.slice(i, i + 50))
+    }
+    setImportPreview(null)
+    setImporting(false); setSyncing(false)
+    alert('Imported ' + importPreview.length + ' orders successfully!')
+  }
+
+  const downloadTemplate = () => {
+    const csv = 'Order Number,Sale Date,Item Name,Serial Number,Platform,Gross Sale,Selling Fee,Ad Fee,Shipping Cost,Item Cost,Notes\n12-34567-89012,2024-01-15,iPhone 12 64GB Black,DNPXC2XY0J4D,eBay,249.99,32.50,5.00,8.99,150.00,Quick sale'
+    const a = document.createElement('a')
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
+    a.download = 'goto-orders-template.csv'
+    a.click()
   }
 
   const netSale = parseFloat(form.gross_sale||0) - parseFloat(form.selling_fee||0) - parseFloat(form.ad_fee||0) - parseFloat(form.shipping_cost||0)
@@ -70,51 +183,13 @@ export default function Orders({ orders, inventory, setSyncing }) {
   }
 
   const filtered = orders.filter(o => {
-    const matchSearch = !search || 
+    const matchSearch = !search ||
       o.item_name?.toLowerCase().includes(search.toLowerCase()) ||
       o.order_number?.toLowerCase().includes(search.toLowerCase()) ||
       o.serial_number?.toLowerCase().includes(search.toLowerCase())
     const matchPlatform = !filterPlatform || o.platform === filterPlatform
     return matchSearch && matchPlatform
   })
-
-
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    setImportError('')
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const rows = parseCSV(ev.target.result)
-      if (rows.length === 0) {
-        setImportError('No valid rows found. Make sure your CSV has Item Name or Gross Sale columns.')
-        return
-      }
-      setImportPreview(rows.map(normalizeOrderRow))
-    }
-    reader.readAsText(file)
-    e.target.value = ''
-  }
-
-  const confirmImport = async () => {
-    if (!importPreview?.length) return
-    setImporting(true); setSyncing(true)
-    for (let i = 0; i < importPreview.length; i += 50) {
-      await supabase.from('orders').insert(importPreview.slice(i, i + 50))
-    }
-    setImportPreview(null)
-    setImporting(false); setSyncing(false)
-    alert('Imported ' + importPreview.length + ' orders successfully!')
-  }
-
-  const downloadTemplate = () => {
-    const csv = 'Order Number,Sale Date,Item Name,Serial Number,Platform,Gross Sale,Selling Fee,Ad Fee,Shipping Cost,Item Cost,Notes
-12-34567-89012,2024-01-15,iPhone 12 64GB Black,DNPXC2XY0J4D,eBay,249.99,32.50,5.00,8.99,150.00,Quick sale'
-    const a = document.createElement('a')
-    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
-    a.download = 'goto-orders-template.csv'
-    a.click()
-  }
 
   const inStockInventory = inventory.filter(i => i.status === 'In Stock')
 
@@ -132,7 +207,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
         </div>
         <p style={{ fontSize:13, color:'var(--c-text2)', marginBottom: importPreview ? 12 : 0 }}>
           Export your Google Sheet as <strong>File → Download → CSV</strong>, then upload here.
-          Recognizes common column name variations automatically.
+          Column headers are flexible — recognizes common variations automatically.
         </p>
 
         {importError && (
@@ -193,16 +268,15 @@ export default function Orders({ orders, inventory, setSyncing }) {
         )}
       </div>
 
+      {/* Add order form */}
       <div className="card">
         <div className="card-title">Log new order</div>
-
-        {/* Row 1: Inventory link + item name */}
         <div className="form-grid form-grid-2" style={{ marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Link to inventory item (optional)</label>
             <select value={form.inventory_id} onChange={e => handleInventorySelect(e.target.value)}>
               <option value="">— Manual entry —</option>
-              {inStockInventory.map(i => <option key={i.id} value={i.id}>{i.name}{i.sku ? ` (${i.sku})` : ''}{i.serial_number ? ` · SN: ${i.serial_number}` : ''}</option>)}
+              {inStockInventory.map(i => <option key={i.id} value={i.id}>{i.name}{i.sku ? ' (' + i.sku + ')' : ''}{i.serial_number ? ' · SN: ' + i.serial_number : ''}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -210,8 +284,6 @@ export default function Orders({ orders, inventory, setSyncing }) {
             <input type="text" placeholder="e.g. iPhone 12 64GB Black" value={form.item_name} onChange={e => set('item_name', e.target.value)} />
           </div>
         </div>
-
-        {/* Row 2: Date, Order #, Serial #, Platform */}
         <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Sale date</label>
@@ -232,8 +304,6 @@ export default function Orders({ orders, inventory, setSyncing }) {
             </select>
           </div>
         </div>
-
-        {/* Row 3: Gross sale + fees */}
         <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Gross sale $</label>
@@ -252,8 +322,6 @@ export default function Orders({ orders, inventory, setSyncing }) {
             <input type="number" placeholder="0.00" min="0" step="0.01" value={form.shipping_cost} onChange={e => set('shipping_cost', e.target.value)} />
           </div>
         </div>
-
-        {/* Row 4: Item cost + notes */}
         <div className="form-grid form-grid-2" style={{ marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Item cost $</label>
@@ -264,8 +332,6 @@ export default function Orders({ orders, inventory, setSyncing }) {
             <input type="text" placeholder="Any notes about this order" value={form.notes} onChange={e => set('notes', e.target.value)} />
           </div>
         </div>
-
-        {/* Live profit preview */}
         {form.gross_sale && (
           <div style={{ display:'flex', gap:16, padding:'10px 14px', background:'var(--c-surface2)', borderRadius:8, marginBottom:12, fontSize:13, flexWrap:'wrap' }}>
             <span>Net sale: <strong>{fmtMoney(netSale)}</strong></span>
@@ -273,7 +339,6 @@ export default function Orders({ orders, inventory, setSyncing }) {
             {parseFloat(form.gross_sale) > 0 && <span>Margin: <strong>{((profit / parseFloat(form.gross_sale)) * 100).toFixed(1)}%</strong></span>}
           </div>
         )}
-
         <button className="btn btn-primary" onClick={submit} disabled={adding}>{adding ? 'Saving…' : 'Save order'}</button>
       </div>
 
@@ -334,7 +399,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
                         <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{fmtMoney(fees + parseFloat(o.shipping_cost||0))}</td>
                         <td className="hide-mobile mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(o.item_cost)}</td>
                         <td className="mono">{fmtMoney(net)}</td>
-                        <td className={`mono ${profit >= 0 ? 'profit-positive' : 'profit-negative'}`}>
+                        <td className={'mono ' + (profit >= 0 ? 'profit-positive' : 'profit-negative')}>
                           {profit >= 0 ? '+' : '-'}{fmtMoney(Math.abs(profit))}
                         </td>
                         <td>
