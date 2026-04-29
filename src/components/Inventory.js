@@ -10,17 +10,17 @@ const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', {
 // Maps common column name variations to our field names
 const COL_MAP = {
   name: ['name','item','item name','title','product','description','device'],
-  sku: ['sku','id','item id','sku/id','product id','sku id'],
-  serial_number: ['serial','serial number','serial no','sn','imei','serial#'],
+  sku: ['sku','sku/id','product id','sku id','item id'],
+  serial_number: ['serial','serial number','serial no','serial num','sn','imei','serial#'],
+  color: ['color','colour','color/storage','storage/color','item color','device color','finish','variant','color/variant'],
   condition: ['condition','grade','quality','cond'],
-  purchase_cost: ['purchase cost','cost','purchase price','buy price','paid','purchase','bought for','cost price'],
-  parts_cost: ['parts cost','parts','repair cost','parts/repair'],
-  listed_price: ['listed price','list price','selling price','price','asking price','retail'],
+  purchase_cost: ['purchase cost','purchase price','buy price','paid','bought for','cost price','purchase'],
+  parts_cost: ['parts cost','parts','repair cost','parts/repair','parts cost $'],
+  listed_price: ['listed price','list price','selling price','asking price','retail','listed price $'],
   platform: ['platform','sell on','marketplace','channel'],
   status: ['status','state'],
-  purchase_date: ['purchase date','date','bought date','date purchased','acquired'],
+  purchase_date: ['purchase date','bought date','date purchased','acquired','date'],
   notes: ['notes','note','comments','comment','memo'],
-  color: ['color','colour','color/storage','storage/color','item color','device color','finish','variant'],
 }
 
 function normalizeHeader(h) {
