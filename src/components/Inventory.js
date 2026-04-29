@@ -447,3 +447,4 @@ export default function Inventory({ inventory, setSyncing }) {
     </div>
   )
 }
+ 
