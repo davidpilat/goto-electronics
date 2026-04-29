@@ -20,7 +20,7 @@ const COL_MAP = {
   status: ['status','state'],
   purchase_date: ['purchase date','date','bought date','date purchased','acquired'],
   notes: ['notes','note','comments','comment','memo'],
-  color: ['color','colour','color/storage','storage/color'],
+  color: ['color','colour','color/storage','storage/color','item color','device color','finish','variant'],
 }
 
 function normalizeHeader(h) {
@@ -282,6 +282,7 @@ export default function Inventory({ inventory, setSyncing }) {
                       <td style={{ color:'var(--c-text2)', fontSize:12 }}>{r.sku || '—'}</td>
                       <td style={{ color:'var(--c-text2)', fontSize:12 }}>{r.serial_number || '—'}</td>
                       <td>{conditionBadge(r.condition)}</td>
+                      <td style={{ fontSize:12, color:"var(--c-text2)" }}>{r.color || "—"}</td>
                       <td className="mono">{fmtMoney(r.purchase_cost)}</td>
                       <td>{statusBadge(r.status)}</td>
                     </tr>
