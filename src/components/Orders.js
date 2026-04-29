@@ -17,6 +17,7 @@ const COL_MAP = {
   shipping_cost: ['shipping cost','shipping','ship cost','postage','shipping paid','shipping expense'],
   item_cost: ['item cost','cost','cogs','purchase cost','buy price','cost of goods','unit cost'],
   notes: ['notes','note','comments','comment','memo'],
+  color: ['color','colour','color/storage','storage/color'],
 }
 
 function normalizeHeader(h) {
@@ -78,6 +79,7 @@ function normalizeOrderRow(row) {
     ad_fee: parseFloat((row.ad_fee||'').replace(/[$,]/g,'')) || 0,
     shipping_cost: parseFloat((row.shipping_cost||'').replace(/[$,]/g,'')) || 0,
     item_cost: parseFloat((row.item_cost||'').replace(/[$,]/g,'')) || 0,
+    color: row.color || null,
     notes: row.notes || null,
   }
 }
@@ -85,7 +87,7 @@ function normalizeOrderRow(row) {
 export default function Orders({ orders, inventory, setSyncing }) {
   const [form, setForm] = useState({
     sale_date: today(), order_number: '', item_name: '', inventory_id: '',
-    serial_number: '', platform: 'eBay', gross_sale: '', selling_fee: '',
+    serial_number: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '',
     ad_fee: '', shipping_cost: '', item_cost: '', notes: ''
   })
   const [adding, setAdding] = useState(false)
@@ -106,9 +108,11 @@ export default function Orders({ orders, inventory, setSyncing }) {
         set('item_name', item.name)
         set('item_cost', (parseFloat(item.purchase_cost||0) + parseFloat(item.parts_cost||0)).toFixed(2))
         set('serial_number', item.serial_number || '')
+        set('color', item.color || '')
       }
     } else {
       set('serial_number', '')
+      set('color', '')
     }
   }
 
@@ -160,6 +164,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
       item_name: form.item_name.trim(),
       inventory_id: form.inventory_id || null,
       serial_number: form.serial_number.trim() || null,
+      color: form.color.trim() || null,
       platform: form.platform,
       gross_sale: parseFloat(form.gross_sale)||0,
       selling_fee: parseFloat(form.selling_fee)||0,
@@ -171,7 +176,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
     if (form.inventory_id) {
       await supabase.from('inventory').update({ status: 'Sold' }).eq('id', form.inventory_id)
     }
-    setForm({ sale_date: today(), order_number: '', item_name: '', inventory_id: '', serial_number: '', platform: 'eBay', gross_sale: '', selling_fee: '', ad_fee: '', shipping_cost: '', item_cost: '', notes: '' })
+    setForm({ sale_date: today(), order_number: '', item_name: '', inventory_id: '', serial_number: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '', ad_fee: '', shipping_cost: '', item_cost: '', notes: '' })
     setAdding(false); setSyncing(false)
   }
 
@@ -284,7 +289,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
             <input type="text" placeholder="e.g. iPhone 12 64GB Black" value={form.item_name} onChange={e => set('item_name', e.target.value)} />
           </div>
         </div>
-        <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
+        <div className="form-grid" style={{ gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr', gap:10, marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Sale date</label>
             <input type="date" value={form.sale_date} onChange={e => set('sale_date', e.target.value)} />
@@ -296,6 +301,10 @@ export default function Orders({ orders, inventory, setSyncing }) {
           <div className="form-group">
             <label className="form-label">Serial number</label>
             <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={form.serial_number} onChange={e => set('serial_number', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Color</label>
+            <input type="text" placeholder="e.g. Black, Silver" value={form.color} onChange={e => set('color', e.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">Platform</label>
@@ -368,6 +377,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
                     <th>Item</th>
                     <th>Platform</th>
                     <th className="hide-mobile">Serial #</th>
+                    <th className="hide-mobile">Color</th>
                     <th className="hide-mobile">Gross</th>
                     <th className="hide-mobile">Fees</th>
                     <th className="hide-mobile">Cost</th>
@@ -395,6 +405,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
                         <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>
                           {o.serial_number || <span style={{ color:'var(--c-text3)' }}>—</span>}
                         </td>
+                        <td className="hide-mobile" style={{ fontSize:12, color:'var(--c-text2)' }}>{o.color || '—'}</td>
                         <td className="hide-mobile mono">{fmtMoney(o.gross_sale)}</td>
                         <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{fmtMoney(fees + parseFloat(o.shipping_cost||0))}</td>
                         <td className="hide-mobile mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(o.item_cost)}</td>
