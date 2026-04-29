@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 const PLATFORMS = ['eBay','Facebook Marketplace','Amazon','Craigslist','OfferUp','Other']
@@ -14,6 +14,10 @@ export default function Orders({ orders, inventory, setSyncing }) {
   const [adding, setAdding] = useState(false)
   const [search, setSearch] = useState('')
   const [filterPlatform, setFilterPlatform] = useState('')
+  const [importPreview, setImportPreview] = useState(null)
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState('')
+  const fileRef = useRef()
 
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
 
@@ -74,10 +78,121 @@ export default function Orders({ orders, inventory, setSyncing }) {
     return matchSearch && matchPlatform
   })
 
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setImportError('')
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const rows = parseCSV(ev.target.result)
+      if (rows.length === 0) {
+        setImportError('No valid rows found. Make sure your CSV has Item Name or Gross Sale columns.')
+        return
+      }
+      setImportPreview(rows.map(normalizeOrderRow))
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  const confirmImport = async () => {
+    if (!importPreview?.length) return
+    setImporting(true); setSyncing(true)
+    for (let i = 0; i < importPreview.length; i += 50) {
+      await supabase.from('orders').insert(importPreview.slice(i, i + 50))
+    }
+    setImportPreview(null)
+    setImporting(false); setSyncing(false)
+    alert('Imported ' + importPreview.length + ' orders successfully!')
+  }
+
+  const downloadTemplate = () => {
+    const csv = 'Order Number,Sale Date,Item Name,Serial Number,Platform,Gross Sale,Selling Fee,Ad Fee,Shipping Cost,Item Cost,Notes
+12-34567-89012,2024-01-15,iPhone 12 64GB Black,DNPXC2XY0J4D,eBay,249.99,32.50,5.00,8.99,150.00,Quick sale'
+    const a = document.createElement('a')
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
+    a.download = 'goto-orders-template.csv'
+    a.click()
+  }
+
   const inStockInventory = inventory.filter(i => i.status === 'In Stock')
 
   return (
     <div>
+      {/* CSV Import */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">Import from CSV</span>
+          <div style={{ display:'flex', gap:8 }}>
+            <button className="btn btn-sm" onClick={downloadTemplate}>↓ Download template</button>
+            <button className="btn btn-sm btn-primary" onClick={() => fileRef.current.click()}>↑ Upload CSV</button>
+            <input ref={fileRef} type="file" accept=".csv" style={{ display:'none' }} onChange={handleFileSelect} />
+          </div>
+        </div>
+        <p style={{ fontSize:13, color:'var(--c-text2)', marginBottom: importPreview ? 12 : 0 }}>
+          Export your Google Sheet as <strong>File → Download → CSV</strong>, then upload here.
+          Recognizes common column name variations automatically.
+        </p>
+
+        {importError && (
+          <div style={{ marginTop:10, padding:'8px 12px', background:'var(--c-red-bg)', color:'var(--c-red)', borderRadius:8, fontSize:13 }}>{importError}</div>
+        )}
+
+        {importPreview && (
+          <div style={{ marginTop:12 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+              <span style={{ fontSize:13, fontWeight:500 }}>Preview — {importPreview.length} orders found</span>
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="btn btn-sm" onClick={() => setImportPreview(null)}>Cancel</button>
+                <button className="btn btn-sm btn-primary" onClick={confirmImport} disabled={importing}>
+                  {importing ? 'Importing…' : 'Import ' + importPreview.length + ' orders'}
+                </button>
+              </div>
+            </div>
+            <div style={{ overflowX:'auto', maxHeight:280, overflowY:'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Order #</th>
+                    <th>Date</th>
+                    <th>Item</th>
+                    <th>Platform</th>
+                    <th>Gross</th>
+                    <th>Fees</th>
+                    <th>Cost</th>
+                    <th>Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importPreview.slice(0, 20).map((r, i) => {
+                    const fees = r.selling_fee + r.ad_fee + r.shipping_cost
+                    const profit = r.gross_sale - fees - r.item_cost
+                    return (
+                      <tr key={i}>
+                        <td style={{ fontSize:12, color:'var(--c-text2)' }}>{r.order_number || '—'}</td>
+                        <td style={{ fontSize:12, color:'var(--c-text2)' }}>{r.sale_date}</td>
+                        <td style={{ maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.item_name}</td>
+                        <td><span className="badge badge-brand">{r.platform}</span></td>
+                        <td className="mono">{fmtMoney(r.gross_sale)}</td>
+                        <td className="mono" style={{ color:'var(--c-amber)' }}>{fmtMoney(fees)}</td>
+                        <td className="mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(r.item_cost)}</td>
+                        <td className={'mono ' + (profit >= 0 ? 'profit-positive' : 'profit-negative')}>
+                          {profit >= 0 ? '+' : '-'}{fmtMoney(Math.abs(profit))}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {importPreview.length > 20 && (
+                    <tr><td colSpan={8} style={{ color:'var(--c-text3)', fontSize:12, textAlign:'center' }}>…and {importPreview.length - 20} more</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="card">
         <div className="card-title">Log new order</div>
 
