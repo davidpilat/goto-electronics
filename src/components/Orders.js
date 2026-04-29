@@ -7,8 +7,8 @@ const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', {
 
 export default function Orders({ orders, inventory, setSyncing }) {
   const [form, setForm] = useState({
-    sale_date: today(), item_name: '', inventory_id: '',
-    platform: 'eBay', gross_sale: '', selling_fee: '',
+    sale_date: today(), order_number: '', item_name: '', inventory_id: '',
+    serial_number: '', platform: 'eBay', gross_sale: '', selling_fee: '',
     ad_fee: '', shipping_cost: '', item_cost: '', notes: ''
   })
   const [adding, setAdding] = useState(false)
@@ -17,7 +17,6 @@ export default function Orders({ orders, inventory, setSyncing }) {
 
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
 
-  // Auto-fill item cost from inventory
   const handleInventorySelect = (id) => {
     set('inventory_id', id)
     if (id) {
@@ -25,8 +24,10 @@ export default function Orders({ orders, inventory, setSyncing }) {
       if (item) {
         set('item_name', item.name)
         set('item_cost', (parseFloat(item.purchase_cost||0) + parseFloat(item.parts_cost||0)).toFixed(2))
-        set('listed_price', item.listed_price || '')
+        set('serial_number', item.serial_number || '')
       }
+    } else {
+      set('serial_number', '')
     }
   }
 
@@ -38,8 +39,10 @@ export default function Orders({ orders, inventory, setSyncing }) {
     setAdding(true); setSyncing(true)
     await supabase.from('orders').insert({
       sale_date: form.sale_date,
+      order_number: form.order_number.trim() || null,
       item_name: form.item_name.trim(),
       inventory_id: form.inventory_id || null,
+      serial_number: form.serial_number.trim() || null,
       platform: form.platform,
       gross_sale: parseFloat(form.gross_sale)||0,
       selling_fee: parseFloat(form.selling_fee)||0,
@@ -48,11 +51,10 @@ export default function Orders({ orders, inventory, setSyncing }) {
       item_cost: parseFloat(form.item_cost)||0,
       notes: form.notes.trim() || null,
     })
-    // Mark inventory as sold
     if (form.inventory_id) {
       await supabase.from('inventory').update({ status: 'Sold' }).eq('id', form.inventory_id)
     }
-    setForm({ sale_date: today(), item_name: '', inventory_id: '', platform: 'eBay', gross_sale: '', selling_fee: '', ad_fee: '', shipping_cost: '', item_cost: '', notes: '' })
+    setForm({ sale_date: today(), order_number: '', item_name: '', inventory_id: '', serial_number: '', platform: 'eBay', gross_sale: '', selling_fee: '', ad_fee: '', shipping_cost: '', item_cost: '', notes: '' })
     setAdding(false); setSyncing(false)
   }
 
@@ -64,7 +66,10 @@ export default function Orders({ orders, inventory, setSyncing }) {
   }
 
   const filtered = orders.filter(o => {
-    const matchSearch = !search || o.item_name?.toLowerCase().includes(search.toLowerCase())
+    const matchSearch = !search || 
+      o.item_name?.toLowerCase().includes(search.toLowerCase()) ||
+      o.order_number?.toLowerCase().includes(search.toLowerCase()) ||
+      o.serial_number?.toLowerCase().includes(search.toLowerCase())
     const matchPlatform = !filterPlatform || o.platform === filterPlatform
     return matchSearch && matchPlatform
   })
@@ -73,15 +78,16 @@ export default function Orders({ orders, inventory, setSyncing }) {
 
   return (
     <div>
-      {/* Add order form */}
       <div className="card">
         <div className="card-title">Log new order</div>
+
+        {/* Row 1: Inventory link + item name */}
         <div className="form-grid form-grid-2" style={{ marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Link to inventory item (optional)</label>
             <select value={form.inventory_id} onChange={e => handleInventorySelect(e.target.value)}>
               <option value="">— Manual entry —</option>
-              {inStockInventory.map(i => <option key={i.id} value={i.id}>{i.name} {i.sku ? `(${i.sku})` : ''}</option>)}
+              {inStockInventory.map(i => <option key={i.id} value={i.id}>{i.name}{i.sku ? ` (${i.sku})` : ''}{i.serial_number ? ` · SN: ${i.serial_number}` : ''}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -89,10 +95,20 @@ export default function Orders({ orders, inventory, setSyncing }) {
             <input type="text" placeholder="e.g. iPhone 12 64GB Black" value={form.item_name} onChange={e => set('item_name', e.target.value)} />
           </div>
         </div>
-        <div className="form-grid form-grid-3" style={{ marginBottom:10 }}>
+
+        {/* Row 2: Date, Order #, Serial #, Platform */}
+        <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Sale date</label>
             <input type="date" value={form.sale_date} onChange={e => set('sale_date', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Order number</label>
+            <input type="text" placeholder="e.g. 12-34567-89012" value={form.order_number} onChange={e => set('order_number', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Serial number</label>
+            <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={form.serial_number} onChange={e => set('serial_number', e.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">Platform</label>
@@ -100,12 +116,14 @@ export default function Orders({ orders, inventory, setSyncing }) {
               {PLATFORMS.map(p => <option key={p}>{p}</option>)}
             </select>
           </div>
+        </div>
+
+        {/* Row 3: Gross sale + fees */}
+        <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Gross sale $</label>
             <input type="number" placeholder="0.00" min="0" step="0.01" value={form.gross_sale} onChange={e => set('gross_sale', e.target.value)} />
           </div>
-        </div>
-        <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Selling fee $</label>
             <input type="number" placeholder="0.00" min="0" step="0.01" value={form.selling_fee} onChange={e => set('selling_fee', e.target.value)} />
@@ -118,27 +136,29 @@ export default function Orders({ orders, inventory, setSyncing }) {
             <label className="form-label">Shipping cost $</label>
             <input type="number" placeholder="0.00" min="0" step="0.01" value={form.shipping_cost} onChange={e => set('shipping_cost', e.target.value)} />
           </div>
+        </div>
+
+        {/* Row 4: Item cost + notes */}
+        <div className="form-grid form-grid-2" style={{ marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Item cost $</label>
             <input type="number" placeholder="0.00" min="0" step="0.01" value={form.item_cost} onChange={e => set('item_cost', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Notes (optional)</label>
+            <input type="text" placeholder="Any notes about this order" value={form.notes} onChange={e => set('notes', e.target.value)} />
           </div>
         </div>
 
         {/* Live profit preview */}
         {form.gross_sale && (
-          <div style={{ display:'flex', gap:16, padding:'10px 14px', background:'var(--c-surface2)', borderRadius:8, marginBottom:10, fontSize:13 }}>
+          <div style={{ display:'flex', gap:16, padding:'10px 14px', background:'var(--c-surface2)', borderRadius:8, marginBottom:12, fontSize:13, flexWrap:'wrap' }}>
             <span>Net sale: <strong>{fmtMoney(netSale)}</strong></span>
             <span>Profit: <strong className={profit >= 0 ? 'profit-positive' : 'profit-negative'}>{profit >= 0 ? '+' : ''}{fmtMoney(profit)}</strong></span>
             {parseFloat(form.gross_sale) > 0 && <span>Margin: <strong>{((profit / parseFloat(form.gross_sale)) * 100).toFixed(1)}%</strong></span>}
           </div>
         )}
 
-        <div className="form-grid form-grid-2" style={{ marginBottom:12 }}>
-          <div className="form-group">
-            <label className="form-label">Notes (optional)</label>
-            <input type="text" placeholder="Any notes about this order" value={form.notes} onChange={e => set('notes', e.target.value)} />
-          </div>
-        </div>
         <button className="btn btn-primary" onClick={submit} disabled={adding}>{adding ? 'Saving…' : 'Save order'}</button>
       </div>
 
@@ -147,8 +167,8 @@ export default function Orders({ orders, inventory, setSyncing }) {
         <div className="card-header">
           <span className="card-title">{filtered.length} orders</span>
           <div style={{ display:'flex', gap:8 }}>
-            <input type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}
-              style={{ height:32, width:140, fontSize:13 }} />
+            <input type="text" placeholder="Search order #, item, serial…" value={search} onChange={e => setSearch(e.target.value)}
+              style={{ height:32, width:180, fontSize:13 }} />
             <select value={filterPlatform} onChange={e => setFilterPlatform(e.target.value)}
               style={{ height:32, width:130, fontSize:12 }}>
               <option value="">All platforms</option>
@@ -163,14 +183,15 @@ export default function Orders({ orders, inventory, setSyncing }) {
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th>Order #</th>
                     <th>Date</th>
                     <th>Item</th>
                     <th>Platform</th>
+                    <th className="hide-mobile">Serial #</th>
                     <th className="hide-mobile">Gross</th>
                     <th className="hide-mobile">Fees</th>
-                    <th className="hide-mobile">Ship</th>
                     <th className="hide-mobile">Cost</th>
-                    <th>Net sale</th>
+                    <th>Net</th>
                     <th>Profit</th>
                     <th></th>
                   </tr>
@@ -182,15 +203,20 @@ export default function Orders({ orders, inventory, setSyncing }) {
                     const profit = net - parseFloat(o.item_cost||0)
                     return (
                       <tr key={o.id}>
+                        <td style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>
+                          {o.order_number || <span style={{ color:'var(--c-text3)' }}>—</span>}
+                        </td>
                         <td style={{ color:'var(--c-text2)', fontSize:12 }}>{o.sale_date}</td>
-                        <td style={{ maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                          {o.item_name}
+                        <td style={{ maxWidth:160 }}>
+                          <div style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{o.item_name}</div>
                           {o.notes && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{o.notes}</div>}
                         </td>
                         <td><span className="badge badge-brand">{o.platform}</span></td>
+                        <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>
+                          {o.serial_number || <span style={{ color:'var(--c-text3)' }}>—</span>}
+                        </td>
                         <td className="hide-mobile mono">{fmtMoney(o.gross_sale)}</td>
-                        <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{fmtMoney(fees)}</td>
-                        <td className="hide-mobile mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(o.shipping_cost)}</td>
+                        <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{fmtMoney(fees + parseFloat(o.shipping_cost||0))}</td>
                         <td className="hide-mobile mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(o.item_cost)}</td>
                         <td className="mono">{fmtMoney(net)}</td>
                         <td className={`mono ${profit >= 0 ? 'profit-positive' : 'profit-negative'}`}>

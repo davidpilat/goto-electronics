@@ -9,7 +9,7 @@ const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', {
 
 export default function Inventory({ inventory, setSyncing }) {
   const [form, setForm] = useState({
-    name: '', sku: '', condition: 'Good', purchase_cost: '',
+    name: '', sku: '', serial_number: '', condition: 'Good', purchase_cost: '',
     parts_cost: '', listed_price: '', platform: '', status: 'In Stock',
     purchase_date: today(), notes: ''
   })
@@ -28,6 +28,7 @@ export default function Inventory({ inventory, setSyncing }) {
     await supabase.from('inventory').insert({
       name: form.name.trim(),
       sku: form.sku.trim() || null,
+      serial_number: form.serial_number.trim() || null,
       condition: form.condition,
       purchase_cost: parseFloat(form.purchase_cost)||0,
       parts_cost: parseFloat(form.parts_cost)||0,
@@ -37,7 +38,7 @@ export default function Inventory({ inventory, setSyncing }) {
       purchase_date: form.purchase_date,
       notes: form.notes.trim() || null,
     })
-    setForm({ name:'', sku:'', condition:'Good', purchase_cost:'', parts_cost:'', listed_price:'', platform:'', status:'In Stock', purchase_date:today(), notes:'' })
+    setForm({ name:'', sku:'', serial_number:'', condition:'Good', purchase_cost:'', parts_cost:'', listed_price:'', platform:'', status:'In Stock', purchase_date:today(), notes:'' })
     setAdding(false); setSyncing(false)
   }
 
@@ -46,6 +47,7 @@ export default function Inventory({ inventory, setSyncing }) {
     await supabase.from('inventory').update({
       name: editForm.name,
       sku: editForm.sku || null,
+      serial_number: editForm.serial_number || null,
       condition: editForm.condition,
       purchase_cost: parseFloat(editForm.purchase_cost)||0,
       parts_cost: parseFloat(editForm.parts_cost)||0,
@@ -103,7 +105,7 @@ export default function Inventory({ inventory, setSyncing }) {
       {/* Add item */}
       <div className="card">
         <div className="card-title">Add inventory item</div>
-        <div className="form-grid form-grid-3" style={{ marginBottom:10 }}>
+        <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
           <div className="form-group" style={{ gridColumn:'span 2' }}>
             <label className="form-label">Item name *</label>
             <input type="text" placeholder="e.g. iPhone 12 64GB Black" value={form.name} onChange={e => set('name', e.target.value)} />
@@ -111,6 +113,10 @@ export default function Inventory({ inventory, setSyncing }) {
           <div className="form-group">
             <label className="form-label">SKU / ID</label>
             <input type="text" placeholder="e.g. IP12-64-BLK" value={form.sku} onChange={e => set('sku', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Serial number</label>
+            <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={form.serial_number} onChange={e => set('serial_number', e.target.value)} />
           </div>
         </div>
         <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
@@ -182,6 +188,7 @@ export default function Inventory({ inventory, setSyncing }) {
                   <tr>
                     <th>Item</th>
                     <th>Condition</th>
+                    <th className="hide-mobile">Serial #</th>
                     <th className="hide-mobile">Cost</th>
                     <th className="hide-mobile">Listed</th>
                     <th className="hide-mobile">Platform</th>
@@ -216,6 +223,7 @@ export default function Inventory({ inventory, setSyncing }) {
                         {item.notes && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{item.notes}</div>}
                       </td>
                       <td>{conditionBadge(item.condition)}</td>
+                      <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:"var(--c-text2)" }}>{item.serial_number || '—'}</td>
                       <td className="hide-mobile">
                         <div className="mono">{fmtMoney(parseFloat(item.purchase_cost||0)+parseFloat(item.parts_cost||0))}</div>
                         {parseFloat(item.parts_cost||0) > 0 && <div style={{ fontSize:11, color:'var(--c-text3)' }}>+{fmtMoney(item.parts_cost)} parts</div>}
