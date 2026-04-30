@@ -136,12 +136,31 @@ export default function Orders({ orders, inventory, setSyncing }) {
   const confirmImport = async () => {
     if (!importPreview?.length) return
     setImporting(true); setSyncing(true)
+
+    // Insert orders in batches
     for (let i = 0; i < importPreview.length; i += 50) {
       await supabase.from('orders').insert(importPreview.slice(i, i + 50))
     }
+
+    // Mark matching inventory items as Sold by serial number
+    const serialNumbers = importPreview
+      .map(o => o.serial_number)
+      .filter(Boolean)
+
+    if (serialNumbers.length > 0) {
+      for (const sn of serialNumbers) {
+        await supabase
+          .from('inventory')
+          .update({ status: 'Sold' })
+          .eq('serial_number', sn)
+          .neq('status', 'Sold')
+      }
+    }
+
     setImportPreview(null)
     setImporting(false); setSyncing(false)
-    alert('Imported ' + importPreview.length + ' orders successfully!')
+    const snCount = serialNumbers.length
+    alert('Imported ' + importPreview.length + ' orders successfully!' + (snCount > 0 ? ' Marked ' + snCount + ' inventory item(s) as Sold.' : ''))
   }
 
   const downloadTemplate = () => {
