@@ -56,12 +56,17 @@ export default function Dashboard({ orders, inventory, expenses }) {
     return { name, revenue: Math.round(gross), profit: Math.round(profit) }
   })
 
-  // Platform breakdown
-  const platformData = PLATFORMS.map(p => ({
-    name: p,
-    revenue: filteredOrders.filter(o => o.platform === p).reduce((s, o) => s + parseFloat(o.gross_sale||0), 0),
-    count: filteredOrders.filter(o => o.platform === p).length
-  })).filter(p => p.count > 0)
+  // Platform breakdown — built from actual order data, not hardcoded list
+  const platformData = Object.entries(
+    filteredOrders.reduce((acc, o) => {
+      const p = o.platform || 'Other'
+      if (!acc[p]) acc[p] = { revenue: 0, count: 0 }
+      acc[p].revenue += parseFloat(o.gross_sale||0)
+      acc[p].count += 1
+      return acc
+    }, {})
+  ).map(([name, d]) => ({ name, revenue: d.revenue, count: d.count }))
+    .sort((a, b) => b.revenue - a.revenue)
 
   const PLATFORM_COLORS = ['#0ea5e9','#16a34a','#d97706','#7c3aed','#dc2626','#6b7280']
 
