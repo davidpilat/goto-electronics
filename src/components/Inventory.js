@@ -7,25 +7,21 @@ const STATUSES = ['In Stock','Listed','Sold','Scrapped']
 const today = () => new Date().toISOString().slice(0, 10)
 const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })
 
-// Maps common column name variations to our field names
 const COL_MAP = {
   name: ['name','item','item name','title','product','description','device'],
   sku: ['sku','sku/id','product id','sku id','item id'],
   serial_number: ['serial','serial number','serial no','serial num','sn','imei','serial#'],
-  color: ['color','colour','color/storage','storage/color','item color','device color','finish','variant','color/variant'],
   condition: ['condition','grade','quality','cond'],
   purchase_cost: ['purchase cost','purchase price','buy price','paid','bought for','cost price','purchase'],
-  parts_cost: ['parts cost','parts','repair cost','parts/repair','parts cost $'],
-  listed_price: ['listed price','list price','selling price','asking price','retail','listed price $'],
+  parts_cost: ['parts cost','parts','repair cost','parts/repair'],
+  listed_price: ['listed price','list price','selling price','asking price','retail'],
   platform: ['platform','sell on','marketplace','channel'],
   status: ['status','state'],
   purchase_date: ['purchase date','bought date','date purchased','acquired','date'],
   notes: ['notes','note','comments','comment','memo'],
 }
 
-function normalizeHeader(h) {
-  return h.toLowerCase().trim().replace(/[^a-z0-9 ]/g, '')
-}
+function normalizeHeader(h) { return h.toLowerCase().trim().replace(/[^a-z0-9 ]/g, '') }
 
 function mapHeader(h) {
   const norm = normalizeHeader(h)
@@ -41,7 +37,6 @@ function parseCSV(text) {
   const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim())
   const fieldMap = headers.map(mapHeader)
   return lines.slice(1).map(line => {
-    // Handle quoted commas
     const vals = []
     let cur = '', inQ = false
     for (const ch of line) {
@@ -51,15 +46,12 @@ function parseCSV(text) {
     }
     vals.push(cur.trim())
     const obj = {}
-    fieldMap.forEach((field, i) => {
-      if (field) obj[field] = (vals[i] || '').replace(/^"|"$/g, '').trim()
-    })
+    fieldMap.forEach((field, i) => { if (field) obj[field] = (vals[i] || '').replace(/^"|"$/g, '').trim() })
     return obj
-  }).filter(r => r.name) // must have a name
+  }).filter(r => r.name)
 }
 
 function normalizeRow(row) {
-  // Normalize condition
   const condLower = (row.condition||'').toLowerCase()
   let condition = 'Good'
   if (condLower.includes('like new') || condLower === 'ln') condition = 'Like New'
@@ -68,7 +60,6 @@ function normalizeRow(row) {
   else if (condLower.includes('fair') || condLower === 'c') condition = 'Fair'
   else if (condLower.includes('part') || condLower === 'p') condition = 'For Parts'
 
-  // Normalize status
   const statLower = (row.status||'').toLowerCase()
   let status = 'In Stock'
   if (statLower.includes('list')) status = 'Listed'
@@ -86,14 +77,13 @@ function normalizeRow(row) {
     platform: row.platform || null,
     status,
     purchase_date: row.purchase_date || today(),
-    color: row.color || null,
     notes: row.notes || null,
   }
 }
 
 export default function Inventory({ inventory, setSyncing }) {
   const [form, setForm] = useState({
-    name: '', sku: '', serial_number: '', color: '', condition: 'Good', purchase_cost: '',
+    name: '', sku: '', serial_number: '', condition: 'Good', purchase_cost: '',
     parts_cost: '', listed_price: '', platform: '', status: 'In Stock',
     purchase_date: today(), notes: ''
   })
@@ -118,7 +108,7 @@ export default function Inventory({ inventory, setSyncing }) {
     reader.onload = (ev) => {
       const rows = parseCSV(ev.target.result)
       if (rows.length === 0) {
-        setImportError('No valid rows found. Make sure your CSV has a "Name" column header.')
+        setImportError('No valid rows found. Make sure your CSV has a Name column.')
         return
       }
       setImportPreview(rows.map(normalizeRow))
@@ -130,13 +120,12 @@ export default function Inventory({ inventory, setSyncing }) {
   const confirmImport = async () => {
     if (!importPreview?.length) return
     setImporting(true); setSyncing(true)
-    // Insert in batches of 50
     for (let i = 0; i < importPreview.length; i += 50) {
       await supabase.from('inventory').insert(importPreview.slice(i, i + 50))
     }
     setImportPreview(null)
     setImporting(false); setSyncing(false)
-    alert(`✓ Imported ${importPreview.length} items successfully!`)
+    alert('Imported ' + importPreview.length + ' items successfully!')
   }
 
   const submit = async () => {
@@ -146,7 +135,6 @@ export default function Inventory({ inventory, setSyncing }) {
       name: form.name.trim(),
       sku: form.sku.trim() || null,
       serial_number: form.serial_number.trim() || null,
-      color: form.color.trim() || null,
       condition: form.condition,
       purchase_cost: parseFloat(form.purchase_cost)||0,
       parts_cost: parseFloat(form.parts_cost)||0,
@@ -156,7 +144,7 @@ export default function Inventory({ inventory, setSyncing }) {
       purchase_date: form.purchase_date,
       notes: form.notes.trim() || null,
     })
-    setForm({ name:'', sku:'', serial_number:'', color:'', condition:'Good', purchase_cost:'', parts_cost:'', listed_price:'', platform:'', status:'In Stock', purchase_date:today(), notes:'' })
+    setForm({ name:'', sku:'', serial_number:'', condition:'Good', purchase_cost:'', parts_cost:'', listed_price:'', platform:'', status:'In Stock', purchase_date:today(), notes:'' })
     setAdding(false); setSyncing(false)
   }
 
@@ -166,7 +154,6 @@ export default function Inventory({ inventory, setSyncing }) {
       name: editForm.name,
       sku: editForm.sku || null,
       serial_number: editForm.serial_number || null,
-      color: editForm.color || null,
       condition: editForm.condition,
       purchase_cost: parseFloat(editForm.purchase_cost)||0,
       parts_cost: parseFloat(editForm.parts_cost)||0,
@@ -186,7 +173,7 @@ export default function Inventory({ inventory, setSyncing }) {
   }
 
   const downloadTemplate = () => {
-    const csv = 'Name,SKU,Serial Number,Color,Condition,Purchase Cost,Parts Cost,Listed Price,Platform,Status,Purchase Date,Notes\niPhone 12 64GB Black,IP12-64-BLK,DNPXC2XY0J4D,Black,Good,150.00,25.00,249.99,eBay,In Stock,2024-01-15,Minor scratch on back'
+    const csv = 'Name,SKU,Serial Number,Condition,Purchase Cost,Parts Cost,Listed Price,Platform,Status,Purchase Date,Notes\niPhone 12 64GB Black,IP12-64-BLK,DNPXC2XY0J4D,Good,150.00,25.00,249.99,eBay,In Stock,2024-01-15,Minor scratch on back'
     const a = document.createElement('a')
     a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
     a.download = 'goto-inventory-template.csv'
@@ -204,8 +191,8 @@ export default function Inventory({ inventory, setSyncing }) {
 
   const filtered = inventory.filter(i => {
     const matchStatus = !filterStatus || i.status === filterStatus
-    const matchSearch = !search || 
-      i.name?.toLowerCase().includes(search.toLowerCase()) || 
+    const matchSearch = !search ||
+      i.name?.toLowerCase().includes(search.toLowerCase()) ||
       i.sku?.toLowerCase().includes(search.toLowerCase()) ||
       i.serial_number?.toLowerCase().includes(search.toLowerCase())
     return matchStatus && matchSearch
@@ -217,7 +204,6 @@ export default function Inventory({ inventory, setSyncing }) {
 
   return (
     <div>
-      {/* Summary */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:'1rem' }}>
         {[
           { label:'In stock', value:inStock, color:'var(--c-green)' },
@@ -242,16 +228,11 @@ export default function Inventory({ inventory, setSyncing }) {
           </div>
         </div>
         <p style={{ fontSize:13, color:'var(--c-text2)', marginBottom: importPreview ? 12 : 0 }}>
-          Export your Google Sheet as <strong>File → Download → CSV</strong>, then upload it here. 
-          Column headers are flexible — it recognizes names like "Item", "Cost", "Serial", etc.
+          Export your Google Sheet as <strong>File → Download → CSV</strong>, then upload here.
         </p>
-
         {importError && (
-          <div style={{ marginTop:10, padding:'8px 12px', background:'var(--c-red-bg)', color:'var(--c-red)', borderRadius:8, fontSize:13 }}>
-            {importError}
-          </div>
+          <div style={{ marginTop:10, padding:'8px 12px', background:'var(--c-red-bg)', color:'var(--c-red)', borderRadius:8, fontSize:13 }}>{importError}</div>
         )}
-
         {importPreview && (
           <div style={{ marginTop:12 }}>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
@@ -259,22 +240,13 @@ export default function Inventory({ inventory, setSyncing }) {
               <div style={{ display:'flex', gap:8 }}>
                 <button className="btn btn-sm" onClick={() => setImportPreview(null)}>Cancel</button>
                 <button className="btn btn-sm btn-primary" onClick={confirmImport} disabled={importing}>
-                  {importing ? 'Importing…' : `Import ${importPreview.length} items`}
+                  {importing ? 'Importing…' : 'Import ' + importPreview.length + ' items'}
                 </button>
               </div>
             </div>
             <div style={{ overflowX:'auto', maxHeight:280, overflowY:'auto' }}>
               <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>SKU</th>
-                    <th>Serial #</th>
-                    <th>Condition</th>
-                    <th>Cost</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>Name</th><th>SKU</th><th>Serial #</th><th>Condition</th><th>Cost</th><th>Status</th></tr></thead>
                 <tbody>
                   {importPreview.slice(0, 20).map((r, i) => (
                     <tr key={i}>
@@ -282,7 +254,6 @@ export default function Inventory({ inventory, setSyncing }) {
                       <td style={{ color:'var(--c-text2)', fontSize:12 }}>{r.sku || '—'}</td>
                       <td style={{ color:'var(--c-text2)', fontSize:12 }}>{r.serial_number || '—'}</td>
                       <td>{conditionBadge(r.condition)}</td>
-                      <td style={{ fontSize:12, color:"var(--c-text2)" }}>{r.color || "—"}</td>
                       <td className="mono">{fmtMoney(r.purchase_cost)}</td>
                       <td>{statusBadge(r.status)}</td>
                     </tr>
@@ -300,7 +271,7 @@ export default function Inventory({ inventory, setSyncing }) {
       {/* Add item manually */}
       <div className="card">
         <div className="card-title">Add item manually</div>
-        <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
+        <div className="form-grid form-grid-3" style={{ marginBottom:10 }}>
           <div className="form-group" style={{ gridColumn:'span 2' }}>
             <label className="form-label">Item name *</label>
             <input type="text" placeholder="e.g. iPhone 12 64GB Black" value={form.name} onChange={e => set('name', e.target.value)} />
@@ -309,16 +280,12 @@ export default function Inventory({ inventory, setSyncing }) {
             <label className="form-label">SKU / ID</label>
             <input type="text" placeholder="e.g. IP12-64-BLK" value={form.sku} onChange={e => set('sku', e.target.value)} />
           </div>
+        </div>
+        <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Serial number</label>
             <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={form.serial_number} onChange={e => set('serial_number', e.target.value)} />
           </div>
-          <div className="form-group">
-            <label className="form-label">Color</label>
-            <input type="text" placeholder="e.g. Black, Silver" value={form.color} onChange={e => set('color', e.target.value)} />
-          </div>
-        </div>
-        <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
           <div className="form-group">
             <label className="form-label">Purchase cost $</label>
             <input type="number" placeholder="0.00" min="0" step="0.01" value={form.purchase_cost} onChange={e => set('purchase_cost', e.target.value)} />
@@ -331,12 +298,12 @@ export default function Inventory({ inventory, setSyncing }) {
             <label className="form-label">Listed price $</label>
             <input type="number" placeholder="0.00" min="0" step="0.01" value={form.listed_price} onChange={e => set('listed_price', e.target.value)} />
           </div>
+        </div>
+        <div className="form-grid form-grid-4" style={{ marginBottom:12 }}>
           <div className="form-group">
             <label className="form-label">Purchase date</label>
             <input type="date" value={form.purchase_date} onChange={e => set('purchase_date', e.target.value)} />
           </div>
-        </div>
-        <div className="form-grid form-grid-4" style={{ marginBottom:12 }}>
           <div className="form-group">
             <label className="form-label">Condition</label>
             <select value={form.condition} onChange={e => set('condition', e.target.value)}>
@@ -356,6 +323,8 @@ export default function Inventory({ inventory, setSyncing }) {
               {PLATFORMS.map(p => <option key={p}>{p}</option>)}
             </select>
           </div>
+        </div>
+        <div className="form-grid form-grid-2" style={{ marginBottom:12 }}>
           <div className="form-group">
             <label className="form-label">Notes</label>
             <input type="text" placeholder="Any notes" value={form.notes} onChange={e => set('notes', e.target.value)} />
@@ -367,7 +336,7 @@ export default function Inventory({ inventory, setSyncing }) {
       {/* Inventory list */}
       <div className="card">
         <div className="card-header">
-          <span className="card-title">{filtered.length} items {totalCost > 0 && `· ${fmtMoney(totalCost)} total cost`}</span>
+          <span className="card-title">{filtered.length} items {totalCost > 0 && '· ' + fmtMoney(totalCost) + ' total cost'}</span>
           <div style={{ display:'flex', gap:8 }}>
             <input type="text" placeholder="Search name, SKU, serial…" value={search} onChange={e => setSearch(e.target.value)}
               style={{ height:32, width:160, fontSize:13 }} />
@@ -388,7 +357,6 @@ export default function Inventory({ inventory, setSyncing }) {
                     <th>Item</th>
                     <th>Condition</th>
                     <th className="hide-mobile">Serial #</th>
-                    <th className="hide-mobile">Color</th>
                     <th className="hide-mobile">Cost</th>
                     <th className="hide-mobile">Listed</th>
                     <th className="hide-mobile">Platform</th>
