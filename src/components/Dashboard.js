@@ -116,11 +116,12 @@ export default function Dashboard({ orders, inventory, expenses }) {
       </div>
 
       {/* Secondary metrics */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:'1rem' }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10, marginBottom:'1rem' }}>
         {[
           { label:'Total fees', value:fmtMoney(totalFees), sub:'Selling + ad fees', color:'var(--c-amber)' },
           { label:'Shipping costs', value:fmtMoney(totalShipping), sub:'Paid by you', color:'var(--c-text)' },
           { label:'Inventory (in stock)', value:`${inStock} items`, sub:`${fmtMoney(inventoryValue)} tied up`, color:'var(--c-purple)' },
+          { label:'Total ever purchased', value:fmtMoney(inventory.reduce((s,i)=>s+parseFloat(i.purchase_cost||0),0)), sub:'All ' + inventory.length + ' items', color:'var(--c-text)' },
         ].map(m => (
           <div key={m.label} className="stat-card">
             <div className="stat-label">{m.label}</div>

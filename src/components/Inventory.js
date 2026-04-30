@@ -187,18 +187,21 @@ export default function Inventory({ inventory, setSyncing }) {
   const totalCost = filtered.reduce((s, i) => s + parseFloat(i.purchase_cost||0), 0)
   const inStock = inventory.filter(i => i.status === 'In Stock').length
   const listed = inventory.filter(i => i.status === 'Listed').length
+  const totalEverPurchased = inventory.reduce((s, i) => s + parseFloat(i.purchase_cost||0), 0)
 
   return (
     <div>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:'1rem' }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10, marginBottom:'1rem' }}>
         {[
           { label:'In stock', value:inStock, color:'var(--c-green)' },
           { label:'Listed', value:listed, color:'var(--c-brand)' },
-          { label:'Inventory value', value:fmtMoney(inventory.filter(i=>i.status!=='Sold'&&i.status!=='Scrapped').reduce((s,i)=>s+parseFloat(i.purchase_cost||0),0)), color:'var(--c-text)' },
+          { label:'Active inventory value', value:fmtMoney(inventory.filter(i=>i.status!=='Sold'&&i.status!=='Scrapped').reduce((s,i)=>s+parseFloat(i.purchase_cost||0),0)), color:'var(--c-text)', sub:'In stock + listed' },
+          { label:'Total ever purchased', value:fmtMoney(totalEverPurchased), color:'var(--c-purple)', sub:'All ' + inventory.length + ' items' },
         ].map(m => (
           <div key={m.label} className="stat-card">
             <div className="stat-label">{m.label}</div>
             <div className="stat-value" style={{ fontSize:20, color:m.color }}>{m.value}</div>
+            {m.sub && <div className="stat-sub">{m.sub}</div>}
           </div>
         ))}
       </div>
