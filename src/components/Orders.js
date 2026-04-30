@@ -93,6 +93,8 @@ export default function Orders({ orders, inventory, setSyncing }) {
   const [adding, setAdding] = useState(false)
   const [search, setSearch] = useState('')
   const [filterPlatform, setFilterPlatform] = useState('')
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState({})
   const [importPreview, setImportPreview] = useState(null)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
@@ -114,6 +116,27 @@ export default function Orders({ orders, inventory, setSyncing }) {
       set('serial_number', '')
       set('color', '')
     }
+  }
+
+  const setEdit = (k, v) => setEditForm(prev => ({ ...prev, [k]: v }))
+
+  const saveEdit = async (id) => {
+    setSyncing(true)
+    await supabase.from('orders').update({
+      order_number: editForm.order_number || null,
+      sale_date: editForm.sale_date,
+      item_name: editForm.item_name,
+      serial_number: editForm.serial_number || null,
+      platform: editForm.platform,
+      gross_sale: parseFloat(editForm.gross_sale)||0,
+      selling_fee: parseFloat(editForm.selling_fee)||0,
+      ad_fee: parseFloat(editForm.ad_fee)||0,
+      shipping_cost: parseFloat(editForm.shipping_cost)||0,
+      item_cost: parseFloat(editForm.item_cost)||0,
+      notes: editForm.notes || null,
+    }).eq('id', id)
+    setEditId(null)
+    setSyncing(false)
   }
 
   const handleFileSelect = (e) => {
@@ -407,6 +430,41 @@ export default function Orders({ orders, inventory, setSyncing }) {
                 </thead>
                 <tbody>
                   {filtered.map(o => {
+                    if (editId === o.id) {
+                      const eNet = parseFloat(editForm.gross_sale||0) - parseFloat(editForm.selling_fee||0) - parseFloat(editForm.ad_fee||0) - parseFloat(editForm.shipping_cost||0)
+                      const eProfit = eNet - parseFloat(editForm.item_cost||0)
+                      return (
+                        <tr key={o.id} style={{ background:'var(--c-surface2)' }}>
+                          <td colSpan={12}>
+                            <div style={{ padding:'12px 4px' }}>
+                              <div className="form-grid form-grid-4" style={{ marginBottom:8 }}>
+                                <div className="form-group"><label className="form-label">Order #</label><input type="text" value={editForm.order_number||''} onChange={e => setEdit('order_number', e.target.value)} style={{ height:34 }} /></div>
+                                <div className="form-group"><label className="form-label">Date</label><input type="date" value={editForm.sale_date||''} onChange={e => setEdit('sale_date', e.target.value)} style={{ height:34 }} /></div>
+                                <div className="form-group" style={{ gridColumn:'span 2' }}><label className="form-label">Item name</label><input type="text" value={editForm.item_name||''} onChange={e => setEdit('item_name', e.target.value)} style={{ height:34 }} /></div>
+                              </div>
+                              <div className="form-grid form-grid-4" style={{ marginBottom:8 }}>
+                                <div className="form-group"><label className="form-label">Serial #</label><input type="text" value={editForm.serial_number||''} onChange={e => setEdit('serial_number', e.target.value)} style={{ height:34 }} /></div>
+                                <div className="form-group"><label className="form-label">Platform</label><select value={editForm.platform||''} onChange={e => setEdit('platform', e.target.value)} style={{ height:34 }}>{PLATFORMS.map(p => <option key={p}>{p}</option>)}</select></div>
+                                <div className="form-group"><label className="form-label">Gross sale $</label><input type="number" value={editForm.gross_sale||''} onChange={e => setEdit('gross_sale', e.target.value)} style={{ height:34 }} /></div>
+                                <div className="form-group"><label className="form-label">Item cost $</label><input type="number" value={editForm.item_cost||''} onChange={e => setEdit('item_cost', e.target.value)} style={{ height:34 }} /></div>
+                              </div>
+                              <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
+                                <div className="form-group"><label className="form-label">Selling fee $</label><input type="number" value={editForm.selling_fee||''} onChange={e => setEdit('selling_fee', e.target.value)} style={{ height:34 }} /></div>
+                                <div className="form-group"><label className="form-label">Ad fee $</label><input type="number" value={editForm.ad_fee||''} onChange={e => setEdit('ad_fee', e.target.value)} style={{ height:34 }} /></div>
+                                <div className="form-group"><label className="form-label">Shipping $</label><input type="number" value={editForm.shipping_cost||''} onChange={e => setEdit('shipping_cost', e.target.value)} style={{ height:34 }} /></div>
+                                <div className="form-group"><label className="form-label">Notes</label><input type="text" value={editForm.notes||''} onChange={e => setEdit('notes', e.target.value)} style={{ height:34 }} /></div>
+                              </div>
+                              <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+                                <span style={{ fontSize:13 }}>Net: <strong>{fmtMoney(eNet)}</strong></span>
+                                <span style={{ fontSize:13 }}>Profit: <strong className={eProfit>=0?'profit-positive':'profit-negative'}>{eProfit>=0?'+':''}{fmtMoney(eProfit)}</strong></span>
+                                <button className="btn btn-primary btn-sm" onClick={() => saveEdit(o.id)}>Save</button>
+                                <button className="btn btn-sm" onClick={() => setEditId(null)}>Cancel</button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    }
                     const fees = parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0)
                     const net = parseFloat(o.gross_sale||0) - fees - parseFloat(o.shipping_cost||0)
                     const profit = net - parseFloat(o.item_cost||0)
@@ -432,7 +490,8 @@ export default function Orders({ orders, inventory, setSyncing }) {
                         <td className={'mono ' + (profit >= 0 ? 'profit-positive' : 'profit-negative')}>
                           {profit >= 0 ? '+' : '-'}{fmtMoney(Math.abs(profit))}
                         </td>
-                        <td>
+                        <td style={{ display:'flex', gap:4 }}>
+                          <button className="btn btn-sm" onClick={() => { setEditId(o.id); setEditForm({...o}) }}>Edit</button>
                           <button className="btn btn-sm btn-danger" onClick={() => deleteOrder(o.id)}>×</button>
                         </td>
                       </tr>
