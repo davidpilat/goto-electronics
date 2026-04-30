@@ -2,7 +2,6 @@ import React, { useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 const CONDITIONS = ['Like New','Excellent','Good','Fair','For Parts']
-const PLATFORMS = ['eBay','Facebook Marketplace','Amazon','Craigslist','OfferUp','Other']
 const STATUSES = ['In Stock','Listed','Sold','Scrapped']
 const today = () => new Date().toISOString().slice(0, 10)
 const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })
@@ -12,10 +11,7 @@ const COL_MAP = {
   sku: ['sku','sku/id','product id','sku id','item id'],
   serial_number: ['serial','serial number','serial no','serial num','sn','imei','serial#'],
   condition: ['condition','grade','quality','cond'],
-  purchase_cost: ['purchase cost','purchase price','buy price','paid','bought for','cost price','purchase'],
-  parts_cost: ['parts cost','parts','repair cost','parts/repair'],
-  listed_price: ['listed price','list price','selling price','asking price','retail'],
-  platform: ['platform','sell on','marketplace','channel'],
+  purchase_cost: ['purchase cost','purchase price','buy price','paid','bought for','cost price','purchase','cost'],
   status: ['status','state'],
   purchase_date: ['purchase date','bought date','date purchased','acquired','date'],
   notes: ['notes','note','comments','comment','memo'],
@@ -72,9 +68,6 @@ function normalizeRow(row) {
     serial_number: row.serial_number || null,
     condition,
     purchase_cost: parseFloat((row.purchase_cost||'').replace(/[$,]/g,'')) || 0,
-    parts_cost: parseFloat((row.parts_cost||'').replace(/[$,]/g,'')) || 0,
-    listed_price: parseFloat((row.listed_price||'').replace(/[$,]/g,'')) || null,
-    platform: row.platform || null,
     status,
     purchase_date: row.purchase_date || today(),
     notes: row.notes || null,
@@ -83,9 +76,8 @@ function normalizeRow(row) {
 
 export default function Inventory({ inventory, setSyncing }) {
   const [form, setForm] = useState({
-    name: '', sku: '', serial_number: '', condition: 'Good', purchase_cost: '',
-    parts_cost: '', listed_price: '', platform: '', status: 'In Stock',
-    purchase_date: today(), notes: ''
+    name: '', sku: '', serial_number: '', condition: 'Good',
+    purchase_cost: '', status: 'In Stock', purchase_date: today(), notes: ''
   })
   const [adding, setAdding] = useState(false)
   const [filterStatus, setFilterStatus] = useState('')
@@ -137,14 +129,11 @@ export default function Inventory({ inventory, setSyncing }) {
       serial_number: form.serial_number.trim() || null,
       condition: form.condition,
       purchase_cost: parseFloat(form.purchase_cost)||0,
-      parts_cost: parseFloat(form.parts_cost)||0,
-      listed_price: form.listed_price ? parseFloat(form.listed_price) : null,
-      platform: form.platform || null,
       status: form.status,
       purchase_date: form.purchase_date,
       notes: form.notes.trim() || null,
     })
-    setForm({ name:'', sku:'', serial_number:'', condition:'Good', purchase_cost:'', parts_cost:'', listed_price:'', platform:'', status:'In Stock', purchase_date:today(), notes:'' })
+    setForm({ name:'', sku:'', serial_number:'', condition:'Good', purchase_cost:'', status:'In Stock', purchase_date:today(), notes:'' })
     setAdding(false); setSyncing(false)
   }
 
@@ -156,9 +145,6 @@ export default function Inventory({ inventory, setSyncing }) {
       serial_number: editForm.serial_number || null,
       condition: editForm.condition,
       purchase_cost: parseFloat(editForm.purchase_cost)||0,
-      parts_cost: parseFloat(editForm.parts_cost)||0,
-      listed_price: editForm.listed_price ? parseFloat(editForm.listed_price) : null,
-      platform: editForm.platform || null,
       status: editForm.status,
       notes: editForm.notes || null,
     }).eq('id', id)
@@ -173,7 +159,7 @@ export default function Inventory({ inventory, setSyncing }) {
   }
 
   const downloadTemplate = () => {
-    const csv = 'Name,SKU,Serial Number,Condition,Purchase Cost,Parts Cost,Listed Price,Platform,Status,Purchase Date,Notes\niPhone 12 64GB Black,IP12-64-BLK,DNPXC2XY0J4D,Good,150.00,25.00,249.99,eBay,In Stock,2024-01-15,Minor scratch on back'
+    const csv = 'Name,SKU,Serial Number,Condition,Purchase Cost,Status,Purchase Date,Notes\niPhone 12 64GB Black,IP12-64-BLK,DNPXC2XY0J4D,Good,150.00,In Stock,2024-01-15,Minor scratch on back'
     const a = document.createElement('a')
     a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv)
     a.download = 'goto-inventory-template.csv'
@@ -198,7 +184,7 @@ export default function Inventory({ inventory, setSyncing }) {
     return matchStatus && matchSearch
   })
 
-  const totalCost = filtered.reduce((s, i) => s + parseFloat(i.purchase_cost||0) + parseFloat(i.parts_cost||0), 0)
+  const totalCost = filtered.reduce((s, i) => s + parseFloat(i.purchase_cost||0), 0)
   const inStock = inventory.filter(i => i.status === 'In Stock').length
   const listed = inventory.filter(i => i.status === 'Listed').length
 
@@ -208,7 +194,7 @@ export default function Inventory({ inventory, setSyncing }) {
         {[
           { label:'In stock', value:inStock, color:'var(--c-green)' },
           { label:'Listed', value:listed, color:'var(--c-brand)' },
-          { label:'Inventory value', value:fmtMoney(inventory.filter(i=>i.status!=='Sold'&&i.status!=='Scrapped').reduce((s,i)=>s+parseFloat(i.purchase_cost||0)+parseFloat(i.parts_cost||0),0)), color:'var(--c-text)' },
+          { label:'Inventory value', value:fmtMoney(inventory.filter(i=>i.status!=='Sold'&&i.status!=='Scrapped').reduce((s,i)=>s+parseFloat(i.purchase_cost||0),0)), color:'var(--c-text)' },
         ].map(m => (
           <div key={m.label} className="stat-card">
             <div className="stat-label">{m.label}</div>
@@ -291,20 +277,6 @@ export default function Inventory({ inventory, setSyncing }) {
             <input type="number" placeholder="0.00" min="0" step="0.01" value={form.purchase_cost} onChange={e => set('purchase_cost', e.target.value)} />
           </div>
           <div className="form-group">
-            <label className="form-label">Parts cost $</label>
-            <input type="number" placeholder="0.00" min="0" step="0.01" value={form.parts_cost} onChange={e => set('parts_cost', e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Listed price $</label>
-            <input type="number" placeholder="0.00" min="0" step="0.01" value={form.listed_price} onChange={e => set('listed_price', e.target.value)} />
-          </div>
-        </div>
-        <div className="form-grid form-grid-4" style={{ marginBottom:12 }}>
-          <div className="form-group">
-            <label className="form-label">Purchase date</label>
-            <input type="date" value={form.purchase_date} onChange={e => set('purchase_date', e.target.value)} />
-          </div>
-          <div className="form-group">
             <label className="form-label">Condition</label>
             <select value={form.condition} onChange={e => set('condition', e.target.value)}>
               {CONDITIONS.map(c => <option key={c}>{c}</option>)}
@@ -316,15 +288,12 @@ export default function Inventory({ inventory, setSyncing }) {
               {STATUSES.map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
-          <div className="form-group">
-            <label className="form-label">Platform to sell on</label>
-            <select value={form.platform} onChange={e => set('platform', e.target.value)}>
-              <option value="">— Not decided —</option>
-              {PLATFORMS.map(p => <option key={p}>{p}</option>)}
-            </select>
-          </div>
         </div>
         <div className="form-grid form-grid-2" style={{ marginBottom:12 }}>
+          <div className="form-group">
+            <label className="form-label">Purchase date</label>
+            <input type="date" value={form.purchase_date} onChange={e => set('purchase_date', e.target.value)} />
+          </div>
           <div className="form-group">
             <label className="form-label">Notes</label>
             <input type="text" placeholder="Any notes" value={form.notes} onChange={e => set('notes', e.target.value)} />
@@ -358,8 +327,6 @@ export default function Inventory({ inventory, setSyncing }) {
                     <th>Condition</th>
                     <th className="hide-mobile">Serial #</th>
                     <th className="hide-mobile">Cost</th>
-                    <th className="hide-mobile">Listed</th>
-                    <th className="hide-mobile">Platform</th>
                     <th>Status</th>
                     <th></th>
                   </tr>
@@ -367,12 +334,11 @@ export default function Inventory({ inventory, setSyncing }) {
                 <tbody>
                   {filtered.map(item => editId === item.id ? (
                     <tr key={item.id}>
-                      <td colSpan={8}>
+                      <td colSpan={6}>
                         <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'8px 0', alignItems:'flex-end' }}>
                           <input style={{ flex:'2 1 160px', height:34 }} type="text" value={editForm.name} onChange={e => setEdit('name', e.target.value)} />
                           <input style={{ flex:'1 1 110px', height:34 }} type="text" value={editForm.serial_number||''} onChange={e => setEdit('serial_number', e.target.value)} placeholder="Serial #" />
                           <input style={{ flex:'1 1 90px', height:34 }} type="number" value={editForm.purchase_cost} onChange={e => setEdit('purchase_cost', e.target.value)} placeholder="Cost $" />
-                          <input style={{ flex:'1 1 90px', height:34 }} type="number" value={editForm.listed_price||''} onChange={e => setEdit('listed_price', e.target.value)} placeholder="List $" />
                           <select style={{ flex:'1 1 100px', height:34 }} value={editForm.condition} onChange={e => setEdit('condition', e.target.value)}>
                             {CONDITIONS.map(c => <option key={c}>{c}</option>)}
                           </select>
@@ -393,12 +359,7 @@ export default function Inventory({ inventory, setSyncing }) {
                       </td>
                       <td>{conditionBadge(item.condition)}</td>
                       <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>{item.serial_number || '—'}</td>
-                      <td className="hide-mobile">
-                        <div className="mono">{fmtMoney(parseFloat(item.purchase_cost||0)+parseFloat(item.parts_cost||0))}</div>
-                        {parseFloat(item.parts_cost||0) > 0 && <div style={{ fontSize:11, color:'var(--c-text3)' }}>+{fmtMoney(item.parts_cost)} parts</div>}
-                      </td>
-                      <td className="hide-mobile mono">{item.listed_price ? fmtMoney(item.listed_price) : '—'}</td>
-                      <td className="hide-mobile">{item.platform ? <span className="badge badge-brand">{item.platform}</span> : '—'}</td>
+                      <td className="hide-mobile mono">{fmtMoney(item.purchase_cost)}</td>
                       <td>{statusBadge(item.status)}</td>
                       <td style={{ display:'flex', gap:4 }}>
                         <button className="btn btn-sm" onClick={() => { setEditId(item.id); setEditForm({...item}) }}>Edit</button>
