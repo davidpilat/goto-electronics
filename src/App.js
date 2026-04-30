@@ -5,9 +5,10 @@ import Orders from './components/Orders'
 import Inventory from './components/Inventory'
 import BizExpenses from './components/BizExpenses'
 import Reports from './components/Reports'
+import ProfitCalc from './components/ProfitCalc'
 import './App.css'
 
-const TABS = ['Dashboard', 'Orders', 'Inventory', 'Expenses', 'Reports']
+const TABS = ['Dashboard', 'Orders', 'Inventory', 'Expenses', 'Reports', 'Calc']
 
 export default function App() {
   const [tab, setTab] = useState('Dashboard')
@@ -75,6 +76,7 @@ export default function App() {
         {tab === 'Inventory' && <Inventory inventory={inventory} setSyncing={setSyncing} />}
         {tab === 'Expenses' && <BizExpenses expenses={expenses} setSyncing={setSyncing} />}
         {tab === 'Reports' && <Reports orders={orders} expenses={expenses} />}
+        {tab === 'Calc' && <ProfitCalc />}
       </main>
     </div>
   )
