@@ -93,6 +93,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
   const [adding, setAdding] = useState(false)
   const [search, setSearch] = useState('')
   const [filterPlatform, setFilterPlatform] = useState('')
+  const [filterSku, setFilterSku] = useState('')
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState({})
   const [importPreview, setImportPreview] = useState(null)
@@ -229,13 +230,25 @@ export default function Orders({ orders, inventory, setSyncing }) {
     setSyncing(false)
   }
 
+  // Build set of serial numbers for selected SKU
+  const skuSerials = filterSku
+    ? new Set(inventory.filter(i => i.sku === filterSku).map(i => i.serial_number).filter(Boolean))
+    : null
+
+  // Build SKU options from inventory
+  const skuOptions = [...new Set(inventory.map(i => i.sku).filter(Boolean))].sort()
+
   const filtered = orders.filter(o => {
     const matchSearch = !search ||
       o.item_name?.toLowerCase().includes(search.toLowerCase()) ||
       o.order_number?.toLowerCase().includes(search.toLowerCase()) ||
       o.serial_number?.toLowerCase().includes(search.toLowerCase())
     const matchPlatform = !filterPlatform || o.platform === filterPlatform
-    return matchSearch && matchPlatform
+    const matchSku = !filterSku || (o.serial_number && skuSerials.has(o.serial_number)) ||
+      inventory.filter(i => i.sku === filterSku).some(i =>
+        i.name && o.item_name && o.item_name.toLowerCase().includes(i.name.toLowerCase().slice(0, 8))
+      )
+    return matchSearch && matchPlatform && matchSku
   })
 
   const inStockInventory = inventory.filter(i => i.status === 'In Stock')
@@ -397,9 +410,14 @@ export default function Orders({ orders, inventory, setSyncing }) {
       <div className="card">
         <div className="card-header">
           <span className="card-title">{filtered.length} orders</span>
-          <div style={{ display:'flex', gap:8 }}>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             <input type="text" placeholder="Search order #, item, serial…" value={search} onChange={e => setSearch(e.target.value)}
               style={{ height:32, width:180, fontSize:13 }} />
+            <select value={filterSku} onChange={e => setFilterSku(e.target.value)}
+              style={{ height:32, width:130, fontSize:12 }}>
+              <option value="">All SKUs</option>
+              {skuOptions.map(s => <option key={s}>{s}</option>)}
+            </select>
             <select value={filterPlatform} onChange={e => setFilterPlatform(e.target.value)}
               style={{ height:32, width:130, fontSize:12 }}>
               <option value="">All platforms</option>
