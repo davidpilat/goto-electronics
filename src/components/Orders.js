@@ -230,13 +230,21 @@ export default function Orders({ orders, inventory, setSyncing }) {
     setSyncing(false)
   }
 
-  // Build set of serial numbers for selected SKU
-  const skuSerials = filterSku
-    ? new Set(inventory.filter(i => i.sku === filterSku).map(i => i.serial_number).filter(Boolean))
-    : null
+  // Build set of serial numbers for selected SKU — exact match only
+  const orderSerials = new Set(orders.map(o => o.serial_number).filter(Boolean))
+  const skuSerialMap = {}
+  inventory.forEach(i => {
+    if (i.sku && i.serial_number) {
+      if (!skuSerialMap[i.sku]) skuSerialMap[i.sku] = new Set()
+      skuSerialMap[i.sku].add(i.serial_number)
+    }
+  })
 
-  // Build SKU options from inventory
-  const skuOptions = [...new Set(inventory.map(i => i.sku).filter(Boolean))].sort()
+  // Only show SKUs that have at least one order match
+  const skuOptions = Object.entries(skuSerialMap)
+    .filter(([sku, serials]) => [...serials].some(s => orderSerials.has(s)))
+    .map(([sku]) => sku)
+    .sort()
 
   const filtered = orders.filter(o => {
     const matchSearch = !search ||
@@ -244,10 +252,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
       o.order_number?.toLowerCase().includes(search.toLowerCase()) ||
       o.serial_number?.toLowerCase().includes(search.toLowerCase())
     const matchPlatform = !filterPlatform || o.platform === filterPlatform
-    const matchSku = !filterSku || (o.serial_number && skuSerials.has(o.serial_number)) ||
-      inventory.filter(i => i.sku === filterSku).some(i =>
-        i.name && o.item_name && o.item_name.toLowerCase().includes(i.name.toLowerCase().slice(0, 8))
-      )
+    const matchSku = !filterSku || (o.serial_number && skuSerialMap[filterSku]?.has(o.serial_number))
     return matchSearch && matchPlatform && matchSku
   })
 
