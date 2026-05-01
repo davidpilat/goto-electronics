@@ -5,10 +5,64 @@ const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })
 const fmtK = n => { const v = parseFloat(n)||0; return (v<0?'-':'')+'$'+(Math.abs(v)>=1000?(Math.abs(v)/1000).toFixed(1)+'k':Math.abs(v).toFixed(0)) }
 
-export default function Reports({ orders, expenses }) {
+export default function Reports({ orders, expenses, inventory = [] }) {
   const [year, setYear] = useState(new Date().getFullYear().toString())
+  const [skuSearch, setSkuSearch] = useState('')
+  const [expandedSkus, setExpandedSkus] = useState({})
   const years = [...new Set(orders.map(o => o.sale_date?.slice(0,4)).filter(Boolean))].sort().reverse()
   if (!years.includes(year) && years.length > 0) {}
+
+  // Build SKU summary by matching orders to inventory via serial number or name
+  const skuData = (() => {
+    const groups = {}
+    inventory.forEach(item => {
+      const key = item.sku || ('__' + item.name)
+      if (!groups[key]) groups[key] = { sku: item.sku, name: item.name, invItems: [], matchedOrders: [] }
+      groups[key].invItems.push(item)
+    })
+    orders.forEach(order => {
+      let matched = false
+      if (order.serial_number) {
+        for (const group of Object.values(groups)) {
+          if (group.invItems.some(i => i.serial_number === order.serial_number)) {
+            group.matchedOrders.push(order); matched = true; break
+          }
+        }
+      }
+      if (!matched) {
+        for (const group of Object.values(groups)) {
+          const on = (order.item_name||'').toLowerCase()
+          const gn = (group.name||'').toLowerCase()
+          if (on && gn && on.length > 4 && gn.length > 4 && (on.includes(gn.slice(0,8)) || gn.includes(on.slice(0,8)))) {
+            group.matchedOrders.push(order); matched = true; break
+          }
+        }
+      }
+    })
+    return Object.values(groups).filter(g => g.invItems.length > 0).map(g => {
+      const totalPurchaseCost = g.invItems.reduce((s,i) => s+parseFloat(i.purchase_cost||0), 0)
+      const grossSale = g.matchedOrders.reduce((s,o) => s+parseFloat(o.gross_sale||0), 0)
+      const sellingFees = g.matchedOrders.reduce((s,o) => s+parseFloat(o.selling_fee||0), 0)
+      const adFees = g.matchedOrders.reduce((s,o) => s+parseFloat(o.ad_fee||0), 0)
+      const shippingCost = g.matchedOrders.reduce((s,o) => s+parseFloat(o.shipping_cost||0), 0)
+      const itemCostFromOrders = g.matchedOrders.reduce((s,o) => s+parseFloat(o.item_cost||0), 0)
+      const netRevenue = grossSale - sellingFees - adFees - shippingCost
+      const grossProfit = grossSale - itemCostFromOrders
+      const netProfit = netRevenue - itemCostFromOrders
+      const margin = grossSale > 0 ? (netProfit/grossSale*100) : 0
+      return {
+        ...g,
+        totalItems: g.invItems.length,
+        soldCount: g.invItems.filter(i => i.status==='Sold').length,
+        inStock: g.invItems.filter(i => i.status==='In Stock').length,
+        totalPurchaseCost,
+        avgPurchaseCost: g.invItems.length > 0 ? totalPurchaseCost/g.invItems.length : 0,
+        grossSale, sellingFees, adFees, shippingCost,
+        itemCostFromOrders, netRevenue, grossProfit, netProfit, margin,
+        orderCount: g.matchedOrders.length,
+      }
+    }).sort((a,b) => b.netProfit - a.netProfit)
+  })()
 
   const monthlyData = MONTHS.map((name, i) => {
     const monthKey = `${year}-${String(i+1).padStart(2,'0')}`
@@ -170,6 +224,71 @@ export default function Reports({ orders, expenses }) {
           </table>
         </div>
         {totals.orders === 0 && <div className="empty"><div className="empty-icon">📊</div>No data for {year} yet.</div>}
+      </div>
+      {/* SKU Summary */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">SKU / Product summary</span>
+          <input type="text" placeholder="Search SKU or name…" value={skuSearch}
+            onChange={e => setSkuSearch(e.target.value)}
+            style={{ height:32, width:180, fontSize:13 }} />
+        </div>
+        {skuData.length === 0
+          ? <div className="empty"><div className="empty-icon">📦</div>No inventory data yet.</div>
+          : (
+            <div style={{ overflowX:'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>SKU / Item</th>
+                    <th>Units</th>
+                    <th className="hide-mobile">Avg cost</th>
+                    <th className="hide-mobile">Selling fees</th>
+                    <th className="hide-mobile">Ad fees</th>
+                    <th className="hide-mobile">Shipping</th>
+                    <th className="hide-mobile">Gross sale</th>
+                    <th>Gross profit</th>
+                    <th>Net profit</th>
+                    <th>Margin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {skuData.filter(g => {
+                    if (!skuSearch) return true
+                    const q = skuSearch.toLowerCase()
+                    return (g.sku||'').toLowerCase().includes(q) || (g.name||'').toLowerCase().includes(q)
+                  }).map((g, i) => (
+                    <tr key={i}>
+                      <td>
+                        <div style={{ fontWeight:500 }}>{g.name}</div>
+                        {g.sku && <div style={{ fontSize:11, fontFamily:"'DM Mono',monospace", color:'var(--c-brand)' }}>{g.sku}</div>}
+                        <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.soldCount} sold · {g.inStock} in stock</div>
+                      </td>
+                      <td style={{ color:'var(--c-text2)' }}>{g.totalItems}</td>
+                      <td className="hide-mobile mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(g.avgPurchaseCost)}</td>
+                      <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.sellingFees > 0 ? fmtMoney(g.sellingFees) : '—'}</td>
+                      <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.adFees > 0 ? fmtMoney(g.adFees) : '—'}</td>
+                      <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.shippingCost > 0 ? fmtMoney(g.shippingCost) : '—'}</td>
+                      <td className="hide-mobile mono">{g.grossSale > 0 ? fmtMoney(g.grossSale) : '—'}</td>
+                      <td className={`mono ${g.grossProfit > 0 ? 'profit-positive' : g.grossProfit < 0 ? 'profit-negative' : ''}`}>
+                        {g.grossSale > 0 ? (g.grossProfit >= 0 ? '+' : '') + fmtMoney(g.grossProfit) : '—'}
+                      </td>
+                      <td className={`mono ${g.netProfit > 0 ? 'profit-positive' : g.netProfit < 0 ? 'profit-negative' : ''}`} style={{ fontWeight:600 }}>
+                        {g.grossSale > 0 ? (g.netProfit >= 0 ? '+' : '') + fmtMoney(g.netProfit) : '—'}
+                      </td>
+                      <td>
+                        {g.grossSale > 0
+                          ? <span className={`badge ${g.margin>=20?'badge-green':g.margin>=10?'badge-amber':'badge-red'}`}>{g.margin.toFixed(1)}%</span>
+                          : <span style={{ color:'var(--c-text3)', fontSize:12 }}>unsold</span>
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
       </div>
     </div>
   )
