@@ -430,6 +430,37 @@ export default function Orders({ orders, inventory, setSyncing }) {
             </select>
           </div>
         </div>
+
+        {/* SKU totals summary — only shows when a SKU is selected */}
+        {filterSku && filtered.length > 0 && (() => {
+          const totalGross = filtered.reduce((s, o) => s + parseFloat(o.gross_sale||0), 0)
+          const totalSellingFees = filtered.reduce((s, o) => s + parseFloat(o.selling_fee||0), 0)
+          const totalAdFees = filtered.reduce((s, o) => s + parseFloat(o.ad_fee||0), 0)
+          const totalShipping = filtered.reduce((s, o) => s + parseFloat(o.shipping_cost||0), 0)
+          const totalItemCost = filtered.reduce((s, o) => s + parseFloat(o.item_cost||0), 0)
+          const totalNet = totalGross - totalSellingFees - totalAdFees - totalShipping
+          const totalProfit = totalNet - totalItemCost
+          const margin = totalGross > 0 ? (totalProfit / totalGross * 100) : 0
+          return (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, padding:'12px 0 14px', borderBottom:'1px solid var(--c-border)', marginBottom:12 }}>
+              {[
+                { label:'Gross sale', value:fmtMoney(totalGross), color:'var(--c-brand)' },
+                { label:'Selling fees', value:fmtMoney(totalSellingFees), color:'var(--c-amber)' },
+                { label:'Ad fees', value:fmtMoney(totalAdFees), color:'var(--c-amber)' },
+                { label:'Shipping', value:fmtMoney(totalShipping), color:'var(--c-amber)' },
+                { label:'Item cost', value:fmtMoney(totalItemCost), color:'var(--c-text2)' },
+                { label:'Net revenue', value:fmtMoney(totalNet), color:'var(--c-text)' },
+                { label:'Net profit', value:(totalProfit>=0?'+':'-')+fmtMoney(totalProfit), color:totalProfit>=0?'var(--c-green)':'var(--c-red)' },
+                { label:'Margin', value:margin.toFixed(1)+'%', color:margin>=20?'var(--c-green)':margin>=10?'var(--c-amber)':'var(--c-red)' },
+              ].map(m => (
+                <div key={m.label} style={{ padding:'8px 10px', background:'var(--c-surface2)', borderRadius:'var(--radius)' }}>
+                  <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:2 }}>{m.label}</div>
+                  <div style={{ fontSize:14, fontWeight:600, fontFamily:"'DM Mono',monospace", color:m.color }}>{m.value}</div>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
         {filtered.length === 0
           ? <div className="empty"><div className="empty-icon">🛒</div>No orders yet. Log your first sale above.</div>
           : (
