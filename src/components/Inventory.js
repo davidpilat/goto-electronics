@@ -84,6 +84,7 @@ export default function Inventory({ inventory, setSyncing }) {
   const [search, setSearch] = useState('')
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState({})
+  const [expandedGroups, setExpandedGroups] = useState({})
   const [importing, setImporting] = useState(false)
   const [importPreview, setImportPreview] = useState(null)
   const [importError, setImportError] = useState('')
@@ -305,7 +306,7 @@ export default function Inventory({ inventory, setSyncing }) {
         <button className="btn btn-primary" onClick={submit} disabled={adding}>{adding ? 'Saving…' : 'Add item'}</button>
       </div>
 
-      {/* Inventory list */}
+      {/* Inventory list — grouped by SKU */}
       <div className="card">
         <div className="card-header">
           <span className="card-title">{filtered.length} items {totalCost > 0 && '· ' + fmtMoney(totalCost) + ' total cost'}</span>
@@ -321,59 +322,103 @@ export default function Inventory({ inventory, setSyncing }) {
         </div>
         {filtered.length === 0
           ? <div className="empty"><div className="empty-icon">📱</div>No items yet. Import a CSV or add items above.</div>
-          : (
-            <div style={{ overflowX:'auto' }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Condition</th>
-                    <th className="hide-mobile">Serial #</th>
-                    <th className="hide-mobile">Cost</th>
-                    <th>Status</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(item => editId === item.id ? (
-                    <tr key={item.id}>
-                      <td colSpan={6}>
-                        <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'8px 0', alignItems:'flex-end' }}>
-                          <input style={{ flex:'2 1 160px', height:34 }} type="text" value={editForm.name} onChange={e => setEdit('name', e.target.value)} />
-                          <input style={{ flex:'1 1 110px', height:34 }} type="text" value={editForm.serial_number||''} onChange={e => setEdit('serial_number', e.target.value)} placeholder="Serial #" />
-                          <input style={{ flex:'1 1 90px', height:34 }} type="number" value={editForm.purchase_cost} onChange={e => setEdit('purchase_cost', e.target.value)} placeholder="Cost $" />
-                          <select style={{ flex:'1 1 100px', height:34 }} value={editForm.condition} onChange={e => setEdit('condition', e.target.value)}>
-                            {CONDITIONS.map(c => <option key={c}>{c}</option>)}
-                          </select>
-                          <select style={{ flex:'1 1 100px', height:34 }} value={editForm.status} onChange={e => setEdit('status', e.target.value)}>
-                            {STATUSES.map(s => <option key={s}>{s}</option>)}
-                          </select>
-                          <button className="btn btn-primary btn-sm" onClick={() => saveEdit(item.id)}>Save</button>
-                          <button className="btn btn-sm" onClick={() => setEditId(null)}>Cancel</button>
+          : (() => {
+              // Group by SKU — items with no SKU get their own group by name
+              const groups = {}
+              filtered.forEach(item => {
+                const key = item.sku ? item.sku : ('__no_sku__' + item.name)
+                if (!groups[key]) groups[key] = { sku: item.sku, name: item.name, items: [] }
+                groups[key].items.push(item)
+              })
+
+              return Object.entries(groups).map(([key, group]) => {
+                const items = group.items
+                const inStock = items.filter(i => i.status === 'In Stock').length
+                const listed = items.filter(i => i.status === 'Listed').length
+                const sold = items.filter(i => i.status === 'Sold').length
+                const totalGroupCost = items.reduce((s, i) => s + parseFloat(i.purchase_cost||0), 0)
+                const avgCost = items.length > 0 ? totalGroupCost / items.length : 0
+                const isExpanded = expandedGroups[key] !== false // default expanded
+
+                return (
+                  <div key={key} style={{ marginBottom:12 }}>
+                    {/* SKU group header */}
+                    <div
+                      onClick={() => setExpandedGroups(prev => ({ ...prev, [key]: !isExpanded }))}
+                      style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'var(--c-surface2)', borderRadius:'var(--radius)', cursor:'pointer', userSelect:'none' }}
+                    >
+                      <span style={{ fontSize:13, color:'var(--c-text3)', transform: isExpanded ? 'rotate(90deg)' : 'none', transition:'transform 0.15s', display:'inline-block' }}>▶</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                          {group.sku && <span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:600, color:'var(--c-brand)' }}>{group.sku}</span>}
+                          <span style={{ fontSize:14, fontWeight:500 }}>{items[0].name}</span>
                         </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    <tr key={item.id}>
-                      <td>
-                        <div style={{ fontWeight:500 }}>{item.name}</div>
-                        {item.sku && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{item.sku}</div>}
-                        {item.notes && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{item.notes}</div>}
-                      </td>
-                      <td>{conditionBadge(item.condition)}</td>
-                      <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>{item.serial_number || '—'}</td>
-                      <td className="hide-mobile mono">{fmtMoney(item.purchase_cost)}</td>
-                      <td>{statusBadge(item.status)}</td>
-                      <td style={{ display:'flex', gap:4 }}>
-                        <button className="btn btn-sm" onClick={() => { setEditId(item.id); setEditForm({...item}) }}>Edit</button>
-                        <button className="btn btn-sm btn-danger" onClick={() => deleteItem(item.id)}>×</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
+                      </div>
+                      <div style={{ display:'flex', gap:8, alignItems:'center', flexShrink:0 }}>
+                        {inStock > 0 && <span className="badge badge-green">{inStock} in stock</span>}
+                        {listed > 0 && <span className="badge badge-brand">{listed} listed</span>}
+                        {sold > 0 && <span className="badge badge-gray">{sold} sold</span>}
+                        <span style={{ fontSize:12, color:'var(--c-text2)', fontFamily:"'DM Mono',monospace" }}>avg {fmtMoney(avgCost)}</span>
+                        <span style={{ fontSize:12, color:'var(--c-text3)' }}>{items.length} total</span>
+                      </div>
+                    </div>
+
+                    {/* Expanded items table */}
+                    {isExpanded && (
+                      <div style={{ overflowX:'auto', marginTop:2 }}>
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>Serial #</th>
+                              <th>Condition</th>
+                              <th className="hide-mobile">Cost</th>
+                              <th className="hide-mobile">Date</th>
+                              <th className="hide-mobile">Notes</th>
+                              <th>Status</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {items.map(item => editId === item.id ? (
+                              <tr key={item.id}>
+                                <td colSpan={7}>
+                                  <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'8px 0', alignItems:'flex-end' }}>
+                                    <input style={{ flex:'2 1 160px', height:34 }} type="text" value={editForm.name} onChange={e => setEdit('name', e.target.value)} placeholder="Name" />
+                                    <input style={{ flex:'1 1 110px', height:34 }} type="text" value={editForm.serial_number||''} onChange={e => setEdit('serial_number', e.target.value)} placeholder="Serial #" />
+                                    <input style={{ flex:'1 1 90px', height:34 }} type="number" value={editForm.purchase_cost} onChange={e => setEdit('purchase_cost', e.target.value)} placeholder="Cost $" />
+                                    <select style={{ flex:'1 1 100px', height:34 }} value={editForm.condition} onChange={e => setEdit('condition', e.target.value)}>
+                                      {CONDITIONS.map(c => <option key={c}>{c}</option>)}
+                                    </select>
+                                    <select style={{ flex:'1 1 100px', height:34 }} value={editForm.status} onChange={e => setEdit('status', e.target.value)}>
+                                      {STATUSES.map(s => <option key={s}>{s}</option>)}
+                                    </select>
+                                    <button className="btn btn-primary btn-sm" onClick={() => saveEdit(item.id)}>Save</button>
+                                    <button className="btn btn-sm" onClick={() => setEditId(null)}>Cancel</button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ) : (
+                              <tr key={item.id}>
+                                <td style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>{item.serial_number || '—'}</td>
+                                <td>{conditionBadge(item.condition)}</td>
+                                <td className="hide-mobile mono">{fmtMoney(item.purchase_cost)}</td>
+                                <td className="hide-mobile" style={{ fontSize:12, color:'var(--c-text3)' }}>{item.purchase_date || '—'}</td>
+                                <td className="hide-mobile" style={{ fontSize:12, color:'var(--c-text3)', maxWidth:120, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.notes || '—'}</td>
+                                <td>{statusBadge(item.status)}</td>
+                                <td style={{ display:'flex', gap:4 }}>
+                                  <button className="btn btn-sm" onClick={() => { setEditId(item.id); setEditForm({...item}) }}>Edit</button>
+                                  <button className="btn btn-sm btn-danger" onClick={() => deleteItem(item.id)}>×</button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            })()
         }
       </div>
     </div>
