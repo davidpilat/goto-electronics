@@ -20,21 +20,13 @@ export default function Reports({ orders, expenses, inventory = [] }) {
       if (!groups[key]) groups[key] = { sku: item.sku, name: item.name, invItems: [], matchedOrders: [] }
       groups[key].invItems.push(item)
     })
+    // Match orders to inventory groups via serial number ONLY (exact match)
     orders.forEach(order => {
-      let matched = false
       if (order.serial_number) {
         for (const group of Object.values(groups)) {
           if (group.invItems.some(i => i.serial_number === order.serial_number)) {
-            group.matchedOrders.push(order); matched = true; break
-          }
-        }
-      }
-      if (!matched) {
-        for (const group of Object.values(groups)) {
-          const on = (order.item_name||'').toLowerCase()
-          const gn = (group.name||'').toLowerCase()
-          if (on && gn && on.length > 4 && gn.length > 4 && (on.includes(gn.slice(0,8)) || gn.includes(on.slice(0,8)))) {
-            group.matchedOrders.push(order); matched = true; break
+            group.matchedOrders.push(order)
+            break
           }
         }
       }
