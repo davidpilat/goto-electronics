@@ -13,13 +13,14 @@ export default function Dashboard({ orders, inventory, expenses }) {
 
   const filterDate = (dateStr) => {
     if (!dateStr) return false
-    const d = new Date(dateStr)
-    if (period === 'month') return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear()
+    // Parse as local date to avoid UTC timezone shift
+    const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number)
+    if (period === 'month') return m - 1 === today.getMonth() && y === today.getFullYear()
     if (period === 'quarter') {
       const q = Math.floor(today.getMonth() / 3)
-      return Math.floor(d.getMonth() / 3) === q && d.getFullYear() === today.getFullYear()
+      return Math.floor((m - 1) / 3) === q && y === today.getFullYear()
     }
-    return d.getFullYear() === today.getFullYear()
+    return y === today.getFullYear()
   }
 
   const filteredOrders = orders.filter(o => filterDate(o.sale_date))
@@ -41,12 +42,14 @@ export default function Dashboard({ orders, inventory, expenses }) {
   // Monthly trend for current year
   const monthlyData = MONTHS.map((name, i) => {
     const monthOrders = orders.filter(o => {
-      const d = new Date(o.sale_date)
-      return d.getMonth() === i && d.getFullYear() === today.getFullYear()
+      if (!o.sale_date) return false
+      const [y, m] = o.sale_date.slice(0, 10).split('-').map(Number)
+      return m - 1 === i && y === today.getFullYear()
     })
     const monthExpenses = expenses.filter(e => {
-      const d = new Date(e.expense_date)
-      return d.getMonth() === i && d.getFullYear() === today.getFullYear()
+      if (!e.expense_date) return false
+      const [y, m] = e.expense_date.slice(0, 10).split('-').map(Number)
+      return m - 1 === i && y === today.getFullYear()
     })
     const gross = monthOrders.reduce((s, o) => s + parseFloat(o.gross_sale||0), 0)
     const fees = monthOrders.reduce((s, o) => s + parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0) + parseFloat(o.shipping_cost||0), 0)
