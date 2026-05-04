@@ -234,7 +234,11 @@ export default function Orders({ orders, inventory, setSyncing }) {
     setSyncing(false)
   }
 
-  // Build set of serial numbers for selected SKU — exact match only
+  // Build serial number → SKU lookup from inventory
+  const serialToSku = {}
+  inventory.forEach(i => {
+    if (i.serial_number && i.sku) serialToSku[i.serial_number] = i.sku
+  })
   const orderSerials = new Set(orders.map(o => o.serial_number).filter(Boolean))
   const skuSerialMap = {}
   inventory.forEach(i => {
@@ -476,6 +480,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
                     <th>Date</th>
                     <th>Item</th>
                     <th>Platform</th>
+                    <th className="hide-mobile">SKU</th>
                     <th className="hide-mobile">Serial #</th>
                     <th className="hide-mobile">Color</th>
                     <th className="hide-mobile">Gross</th>
@@ -537,6 +542,11 @@ export default function Orders({ orders, inventory, setSyncing }) {
                           {o.notes && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{o.notes}</div>}
                         </td>
                         <td><span className="badge badge-brand">{o.platform}</span></td>
+                        <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-brand)' }}>
+                          {o.serial_number && serialToSku[o.serial_number]
+                            ? serialToSku[o.serial_number]
+                            : <span style={{ color:'var(--c-text3)' }}>—</span>}
+                        </td>
                         <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>
                           {o.serial_number || <span style={{ color:'var(--c-text3)' }}>—</span>}
                         </td>
