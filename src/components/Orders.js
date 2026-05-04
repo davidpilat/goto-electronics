@@ -136,11 +136,11 @@ export default function Orders({ orders, inventory, setSyncing }) {
       item_cost: parseFloat(editForm.item_cost)||0,
       notes: editForm.notes || null,
     }).eq('id', id)
-    // If SKU was set/changed, update the inventory item
-    if (editForm._sku !== undefined && editForm.serial_number) {
+    // Update inventory SKU if serial number exists and SKU field was shown
+    if (editForm.serial_number && editForm._sku !== undefined) {
       await supabase.from('inventory')
-        .update({ sku: editForm._sku || null })
-        .eq('serial_number', editForm.serial_number)
+        .update({ sku: editForm._sku.trim() || null })
+        .eq('serial_number', editForm.serial_number.trim())
     }
     setEditId(null)
     setSyncing(false)
@@ -568,7 +568,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
                           {profit >= 0 ? '+' : '-'}{fmtMoney(Math.abs(profit))}
                         </td>
                         <td style={{ display:'flex', gap:4 }}>
-                          <button className="btn btn-sm" onClick={() => { setEditId(o.id); setEditForm({...o}) }}>Edit</button>
+                          <button className="btn btn-sm" onClick={() => { setEditId(o.id); setEditForm({...o, _sku: serialToSku[o.serial_number] || ''}) }}>Edit</button>
                           <button className="btn btn-sm btn-danger" onClick={() => deleteOrder(o.id)}>×</button>
                         </td>
                       </tr>
