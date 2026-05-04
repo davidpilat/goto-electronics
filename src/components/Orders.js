@@ -218,6 +218,10 @@ export default function Orders({ orders, inventory, setSyncing }) {
     })
     if (form.inventory_id) {
       await supabase.from('inventory').update({ status: 'Sold' }).eq('id', form.inventory_id)
+    } else if (form.serial_number.trim()) {
+      await supabase.from('inventory').update({ status: 'Sold' })
+        .eq('serial_number', form.serial_number.trim())
+        .neq('status', 'Sold')
     }
     setForm({ sale_date: today(), order_number: '', item_name: '', inventory_id: '', serial_number: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '', ad_fee: '', shipping_cost: '', item_cost: '', notes: '' })
     setAdding(false); setSyncing(false)
