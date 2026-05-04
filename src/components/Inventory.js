@@ -116,6 +116,22 @@ export default function Inventory({ inventory, setSyncing }) {
     for (let i = 0; i < importPreview.length; i += 50) {
       await supabase.from('inventory').insert(importPreview.slice(i, i + 50))
     }
+    // Check if any imported items have matching orders — mark them sold
+    const serialsToCheck = importPreview.map(r => r.serial_number).filter(Boolean)
+    if (serialsToCheck.length > 0) {
+      const { data: matchingOrders } = await supabase
+        .from('orders')
+        .select('serial_number')
+        .in('serial_number', serialsToCheck)
+      if (matchingOrders?.length > 0) {
+        const soldSerials = [...new Set(matchingOrders.map(o => o.serial_number))]
+        for (const sn of soldSerials) {
+          await supabase.from('inventory').update({ status: 'Sold' })
+            .eq('serial_number', sn)
+            .neq('status', 'Sold')
+        }
+      }
+    }
     setImportPreview(null)
     setImporting(false); setSyncing(false)
     alert('Imported ' + importPreview.length + ' items successfully!')
@@ -134,6 +150,19 @@ export default function Inventory({ inventory, setSyncing }) {
       purchase_date: form.purchase_date,
       notes: form.notes.trim() || null,
     })
+    // If serial number already has a matching order, mark as sold
+    if (form.serial_number.trim()) {
+      const { data: existingOrder } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('serial_number', form.serial_number.trim())
+        .limit(1)
+      if (existingOrder?.length > 0) {
+        await supabase.from('inventory').update({ status: 'Sold' })
+          .eq('serial_number', form.serial_number.trim())
+          .neq('status', 'Sold')
+      }
+    }
     setForm({ name:'', sku:'', serial_number:'', condition:'Good', purchase_cost:'', status:'In Stock', purchase_date:today(), notes:'' })
     setAdding(false); setSyncing(false)
   }
