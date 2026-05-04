@@ -136,6 +136,12 @@ export default function Orders({ orders, inventory, setSyncing }) {
       item_cost: parseFloat(editForm.item_cost)||0,
       notes: editForm.notes || null,
     }).eq('id', id)
+    // If SKU was set/changed, update the inventory item
+    if (editForm._sku !== undefined && editForm.serial_number) {
+      await supabase.from('inventory')
+        .update({ sku: editForm._sku || null })
+        .eq('serial_number', editForm.serial_number)
+    }
     setEditId(null)
     setSyncing(false)
   }
@@ -507,15 +513,18 @@ export default function Orders({ orders, inventory, setSyncing }) {
                               </div>
                               <div className="form-grid form-grid-4" style={{ marginBottom:8 }}>
                                 <div className="form-group"><label className="form-label">Serial #</label><input type="text" value={editForm.serial_number||''} onChange={e => setEdit('serial_number', e.target.value)} style={{ height:34 }} /></div>
+                                <div className="form-group">
+                                  <label className="form-label">SKU (updates inventory)</label>
+                                  <input type="text" value={editForm._sku||serialToSku[editForm.serial_number]||''} onChange={e => setEdit('_sku', e.target.value)} style={{ height:34 }} placeholder="e.g. IP12-64-BLK" />
+                                </div>
                                 <div className="form-group"><label className="form-label">Platform</label><select value={editForm.platform||''} onChange={e => setEdit('platform', e.target.value)} style={{ height:34 }}>{PLATFORMS.map(p => <option key={p}>{p}</option>)}</select></div>
                                 <div className="form-group"><label className="form-label">Gross sale $</label><input type="number" value={editForm.gross_sale||''} onChange={e => setEdit('gross_sale', e.target.value)} style={{ height:34 }} /></div>
-                                <div className="form-group"><label className="form-label">Item cost $</label><input type="number" value={editForm.item_cost||''} onChange={e => setEdit('item_cost', e.target.value)} style={{ height:34 }} /></div>
                               </div>
                               <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
+                                <div className="form-group"><label className="form-label">Item cost $</label><input type="number" value={editForm.item_cost||''} onChange={e => setEdit('item_cost', e.target.value)} style={{ height:34 }} /></div>
                                 <div className="form-group"><label className="form-label">Selling fee $</label><input type="number" value={editForm.selling_fee||''} onChange={e => setEdit('selling_fee', e.target.value)} style={{ height:34 }} /></div>
                                 <div className="form-group"><label className="form-label">Ad fee $</label><input type="number" value={editForm.ad_fee||''} onChange={e => setEdit('ad_fee', e.target.value)} style={{ height:34 }} /></div>
                                 <div className="form-group"><label className="form-label">Shipping $</label><input type="number" value={editForm.shipping_cost||''} onChange={e => setEdit('shipping_cost', e.target.value)} style={{ height:34 }} /></div>
-                                <div className="form-group"><label className="form-label">Notes</label><input type="text" value={editForm.notes||''} onChange={e => setEdit('notes', e.target.value)} style={{ height:34 }} /></div>
                               </div>
                               <div style={{ display:'flex', alignItems:'center', gap:16 }}>
                                 <span style={{ fontSize:13 }}>Net: <strong>{fmtMoney(eNet)}</strong></span>
