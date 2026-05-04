@@ -17,8 +17,10 @@ const pct = n => (parseFloat(n)||0).toFixed(1) + '%'
 
 export default function ProfitCalc() {
   const [platform, setPlatform] = useState('eBay')
+  const [priceMode, setPriceMode] = useState('per_unit') // 'per_unit' or 'lot_total'
   const [salePrice, setSalePrice] = useState('')
   const [quantity, setQuantity] = useState(1)
+  const [lotCost, setLotCost] = useState('') // what you're paying for the lot
   const [sellingFeeRate, setSellingFeeRate] = useState(13.25)
   const [adFeeRate, setAdFeeRate] = useState(2)
   const [shippingCost, setShippingCost] = useState(8)
@@ -37,23 +39,35 @@ export default function ProfitCalc() {
   }, [platform])
 
   const qty = Math.max(1, parseInt(quantity) || 1)
-  const salePricePerUnit = parseFloat(salePrice) || 0
+
+  // Sale price calculations depend on mode
+  const salePricePerUnit = priceMode === 'lot_total'
+    ? (parseFloat(salePrice) || 0) / qty
+    : (parseFloat(salePrice) || 0)
   const totalSale = salePricePerUnit * qty
 
   // Per-unit costs
   const sellFeePerUnit = salePricePerUnit * (parseFloat(sellingFeeRate)||0) / 100
   const adFeePerUnit = salePricePerUnit * (parseFloat(adFeeRate)||0) / 100
-  const shipPerUnit = parseFloat(shippingCost) || 0  // shipping per unit (user enters per-unit)
+  const shipPerUnit = parseFloat(shippingCost) || 0
   const repairPerUnit = parseFloat(repairCost) || 0
 
   // Total costs
   const totalSellFee = sellFeePerUnit * qty
   const totalAdFee = adFeePerUnit * qty
-  const totalShip = shipPerUnit * qty  // multiplied by quantity
+  const totalShip = shipPerUnit * qty
   const totalRepair = repairPerUnit * qty
 
   const netRevenuePerUnit = salePricePerUnit - sellFeePerUnit - adFeePerUnit - shipPerUnit
   const totalNetRevenue = netRevenuePerUnit * qty
+
+  // If lot cost is provided, calculate profit directly instead of max bid
+  const lotCostValue = parseFloat(lotCost) || 0
+  const lotCostPerUnit = qty > 0 ? lotCostValue / qty : 0
+  const hasLotCost = lotCostValue > 0
+
+  const profitWithLotCost = hasLotCost ? totalNetRevenue - totalRepair - lotCostValue : null
+  const marginWithLotCost = hasLotCost && totalSale > 0 ? (profitWithLotCost / totalSale * 100) : null
 
   // Max bid for the entire lot
   const targetMarginDec = (parseFloat(targetMargin)||0) / 100
@@ -106,9 +120,19 @@ export default function ProfitCalc() {
                   {PLATFORMS.map(p => <option key={p}>{p}</option>)}
                 </select>
               </div>
+              {/* Mode toggle */}
+              <div style={{ display:'flex', gap:4 }}>
+                {[['per_unit','Per unit price'],['lot_total','Lot total price']].map(([m,l]) => (
+                  <button key={m} onClick={() => setPriceMode(m)}
+                    className={`btn btn-sm ${priceMode===m?'btn-primary':''}`}
+                    style={{ flex:1 }}>{l}</button>
+                ))}
+              </div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                 <div className="form-group">
-                  <label className="form-label">Sale price per unit $</label>
+                  <label className="form-label">
+                    {priceMode === 'lot_total' ? 'Total lot sale price $' : 'Sale price per unit $'}
+                  </label>
                   <input type="number" placeholder="0.00" min="0" step="0.01"
                     value={salePrice} onChange={e => setSalePrice(e.target.value)}
                     style={{ fontSize:16, fontWeight:600 }} autoFocus />
@@ -121,7 +145,41 @@ export default function ProfitCalc() {
               </div>
               {qty > 1 && salePricePerUnit > 0 && (
                 <div style={{ padding:'8px 12px', background:'var(--c-surface2)', borderRadius:8, fontSize:13, color:'var(--c-text2)' }}>
-                  Total sale value: <strong style={{ color:'var(--c-text)' }}>{fmt(totalSale)}</strong> ({qty} × {fmt(salePricePerUnit)})
+                  {priceMode === 'lot_total'
+                    ? <>Total: <strong style={{ color:'var(--c-text)' }}>{fmt(totalSale)}</strong> → <strong>{fmt(salePricePerUnit)}</strong>/unit</>
+                    : <>Total sale value: <strong style={{ color:'var(--c-text)' }}>{fmt(totalSale)}</strong> ({qty} × {fmt(salePricePerUnit)})</>
+                  }
+                </div>
+              )}
+              {/* Lot cost — what you're paying */}
+              <div className="form-group">
+                <label className="form-label">Your lot cost $ <span style={{ color:'var(--c-text3)', fontWeight:400 }}>(optional — calculates profit directly)</span></label>
+                <input type="number" placeholder="0.00" min="0" step="0.01"
+                  value={lotCost} onChange={e => setLotCost(e.target.value)} />
+              </div>
+              {hasLotCost && totalSale > 0 && (
+                <div style={{ padding:'10px 14px', background: profitWithLotCost >= 0 ? 'var(--c-green-bg)' : 'var(--c-red-bg)', borderRadius:8 }}>
+                  <div style={{ fontSize:12, color:'var(--c-text2)', marginBottom:4 }}>Profit at {fmt(lotCostValue)} lot cost ({fmt(lotCostPerUnit)}/unit)</div>
+                  <div style={{ display:'flex', gap:20, flexWrap:'wrap' }}>
+                    <div>
+                      <span style={{ fontSize:11, color:'var(--c-text3)' }}>Total profit</span>
+                      <div style={{ fontSize:20, fontWeight:700, fontFamily:"'DM Mono',monospace", color: profitWithLotCost >= 0 ? 'var(--c-green)' : 'var(--c-red)' }}>
+                        {profitWithLotCost >= 0 ? '+' : ''}{fmt(profitWithLotCost)}
+                      </div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize:11, color:'var(--c-text3)' }}>Per unit</span>
+                      <div style={{ fontSize:20, fontWeight:700, fontFamily:"'DM Mono',monospace", color: profitWithLotCost >= 0 ? 'var(--c-green)' : 'var(--c-red)' }}>
+                        {profitWithLotCost >= 0 ? '+' : ''}{fmt(profitWithLotCost / qty)}
+                      </div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize:11, color:'var(--c-text3)' }}>Margin</span>
+                      <div style={{ fontSize:20, fontWeight:700, fontFamily:"'DM Mono',monospace", color: marginWithLotCost >= 20 ? 'var(--c-green)' : marginWithLotCost >= 10 ? 'var(--c-amber)' : 'var(--c-red)' }}>
+                        {marginWithLotCost.toFixed(1)}%
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
