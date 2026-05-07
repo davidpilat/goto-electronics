@@ -234,13 +234,13 @@ export default function Reports({ orders, expenses, inventory = [] }) {
                   <tr>
                     <th>SKU / Item</th>
                     <th>Units</th>
-                    <th className="hide-mobile">Avg cost</th>
+                    <th className="hide-mobile">Total cost</th>
                     <th className="hide-mobile">Selling fees</th>
                     <th className="hide-mobile">Ad fees</th>
                     <th className="hide-mobile">Shipping</th>
                     <th className="hide-mobile">Gross sale</th>
-                    <th>Gross profit</th>
-                    <th>Net profit</th>
+                    <th>Net profit (sold)</th>
+                    <th>Total profit (all units)</th>
                     <th>Margin</th>
                   </tr>
                 </thead>
@@ -249,33 +249,50 @@ export default function Reports({ orders, expenses, inventory = [] }) {
                     if (!skuSearch) return true
                     const q = skuSearch.toLowerCase()
                     return (g.sku||'').toLowerCase().includes(q) || (g.name||'').toLowerCase().includes(q)
-                  }).map((g, i) => (
-                    <tr key={i}>
-                      <td>
-                        <div style={{ fontWeight:500 }}>{g.name}</div>
-                        {g.sku && <div style={{ fontSize:11, fontFamily:"'DM Mono',monospace", color:'var(--c-brand)' }}>{g.sku}</div>}
-                        <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.soldCount} sold · {g.inStock} in stock</div>
-                      </td>
-                      <td style={{ color:'var(--c-text2)' }}>{g.totalItems}</td>
-                      <td className="hide-mobile mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(g.avgPurchaseCost)}</td>
-                      <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.sellingFees > 0 ? fmtMoney(g.sellingFees) : '—'}</td>
-                      <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.adFees > 0 ? fmtMoney(g.adFees) : '—'}</td>
-                      <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.shippingCost > 0 ? fmtMoney(g.shippingCost) : '—'}</td>
-                      <td className="hide-mobile mono">{g.grossSale > 0 ? fmtMoney(g.grossSale) : '—'}</td>
-                      <td className={`mono ${g.grossProfit > 0 ? 'profit-positive' : g.grossProfit < 0 ? 'profit-negative' : ''}`}>
-                        {g.grossSale > 0 ? (g.grossProfit >= 0 ? '+' : '') + fmtMoney(g.grossProfit) : '—'}
-                      </td>
-                      <td className={`mono ${g.netProfit > 0 ? 'profit-positive' : g.netProfit < 0 ? 'profit-negative' : ''}`} style={{ fontWeight:600 }}>
-                        {g.grossSale > 0 ? (g.netProfit >= 0 ? '+' : '') + fmtMoney(g.netProfit) : '—'}
-                      </td>
-                      <td>
-                        {g.grossSale > 0
-                          ? <span className={`badge ${g.margin>=20?'badge-green':g.margin>=10?'badge-amber':'badge-red'}`}>{g.margin.toFixed(1)}%</span>
-                          : <span style={{ color:'var(--c-text3)', fontSize:12 }}>unsold</span>
-                        }
-                      </td>
-                    </tr>
-                  ))}
+                  }).map((g, i) => {
+                    // Total profit = net profit from sales minus ALL units' purchase cost
+                    const totalProfitAllUnits = g.netRevenue - g.totalPurchaseCost
+                    const totalMarginAllUnits = g.grossSale > 0 ? (totalProfitAllUnits / g.grossSale * 100) : null
+                    return (
+                      <tr key={i}>
+                        <td>
+                          <div style={{ fontWeight:500 }}>{g.name}</div>
+                          {g.sku && <div style={{ fontSize:11, fontFamily:"'DM Mono',monospace", color:'var(--c-brand)' }}>{g.sku}</div>}
+                          <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.soldCount} sold · {g.inStock} in stock</div>
+                        </td>
+                        <td style={{ color:'var(--c-text2)' }}>{g.totalItems}</td>
+                        <td className="hide-mobile">
+                          <div className="mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(g.totalPurchaseCost)}</div>
+                          <div style={{ fontSize:11, color:'var(--c-text3)' }}>avg {fmtMoney(g.avgPurchaseCost)}</div>
+                        </td>
+                        <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.sellingFees > 0 ? fmtMoney(g.sellingFees) : '—'}</td>
+                        <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.adFees > 0 ? fmtMoney(g.adFees) : '—'}</td>
+                        <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.shippingCost > 0 ? fmtMoney(g.shippingCost) : '—'}</td>
+                        <td className="hide-mobile mono">{g.grossSale > 0 ? fmtMoney(g.grossSale) : '—'}</td>
+                        <td className={`mono ${g.netProfit > 0 ? 'profit-positive' : g.netProfit < 0 ? 'profit-negative' : ''}`}>
+                          {g.grossSale > 0 ? (g.netProfit >= 0 ? '+' : '') + fmtMoney(g.netProfit) : '—'}
+                        </td>
+                        <td>
+                          {g.grossSale > 0 ? (
+                            <div>
+                              <div className={`mono ${totalProfitAllUnits > 0 ? 'profit-positive' : 'profit-negative'}`} style={{ fontWeight:600 }}>
+                                {totalProfitAllUnits >= 0 ? '+' : ''}{fmtMoney(totalProfitAllUnits)}
+                              </div>
+                              {g.inStock > 0 && (
+                                <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.inStock} unsold @ {fmtMoney(g.avgPurchaseCost)} ea</div>
+                              )}
+                            </div>
+                          ) : '—'}
+                        </td>
+                        <td>
+                          {g.grossSale > 0
+                            ? <span className={`badge ${g.margin>=20?'badge-green':g.margin>=10?'badge-amber':'badge-red'}`}>{g.margin.toFixed(1)}%</span>
+                            : <span style={{ color:'var(--c-text3)', fontSize:12 }}>unsold</span>
+                          }
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
