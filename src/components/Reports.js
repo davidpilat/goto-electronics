@@ -42,16 +42,29 @@ export default function Reports({ orders, expenses, inventory = [] }) {
       const grossProfit = grossSale - itemCostFromOrders
       const netProfit = netRevenue - itemCostFromOrders
       const margin = grossSale > 0 ? (netProfit/grossSale*100) : 0
+      const inStockItems = g.invItems.filter(i => i.status === 'In Stock' || i.status === 'Listed')
+      const soldOrders = g.matchedOrders.filter(o => parseFloat(o.gross_sale||0) > 0)
+      const avgSellingPrice = soldOrders.length > 0 ? grossSale / soldOrders.length : 0
+      const avgFeeRate = grossSale > 0 ? (sellingFees + adFees + shippingCost) / grossSale : 0
+      const potentialGrossSale = avgSellingPrice * inStockItems.length
+      const potentialFees = potentialGrossSale * avgFeeRate
+      const potentialItemCost = inStockItems.reduce((s,i) => s+parseFloat(i.purchase_cost||0), 0)
+      const potentialNetRevenue = potentialGrossSale - potentialFees
+      const potentialProfit = potentialNetRevenue - potentialItemCost
+      const potentialMargin = potentialGrossSale > 0 ? (potentialProfit / potentialGrossSale * 100) : 0
       return {
         ...g,
         totalItems: g.invItems.length,
         soldCount: g.invItems.filter(i => i.status==='Sold').length,
-        inStock: g.invItems.filter(i => i.status==='In Stock').length,
+        inStock: inStockItems.length,
         totalPurchaseCost,
         avgPurchaseCost: g.invItems.length > 0 ? totalPurchaseCost/g.invItems.length : 0,
+        avgSellingPrice,
         grossSale, sellingFees, adFees, shippingCost,
         itemCostFromOrders, netRevenue, grossProfit, netProfit, margin,
         orderCount: g.matchedOrders.length,
+        potentialGrossSale, potentialFees, potentialItemCost,
+        potentialNetRevenue, potentialProfit, potentialMargin,
       }
     }).sort((a,b) => b.netProfit - a.netProfit)
   })()
@@ -217,6 +230,37 @@ export default function Reports({ orders, expenses, inventory = [] }) {
         </div>
         {totals.orders === 0 && <div className="empty"><div className="empty-icon">📊</div>No data for {year} yet.</div>}
       </div>
+      {/* Potential Revenue Summary */}
+      {(() => {
+        const unsoldSkus = skuData.filter(g => g.inStock > 0 && g.avgSellingPrice > 0)
+        if (unsoldSkus.length === 0) return null
+        const totalPotentialGross = unsoldSkus.reduce((s,g) => s+g.potentialGrossSale, 0)
+        const totalPotentialProfit = unsoldSkus.reduce((s,g) => s+g.potentialProfit, 0)
+        const totalUnsoldCost = unsoldSkus.reduce((s,g) => s+g.potentialItemCost, 0)
+        const totalUnsoldUnits = unsoldSkus.reduce((s,g) => s+g.inStock, 0)
+        return (
+          <div className="card" style={{ marginBottom:'1rem', border:'1px solid rgba(14,165,233,0.2)', background:'var(--c-brand-bg)' }}>
+            <div className="card-title" style={{ color:'var(--c-brand)' }}>Potential revenue — unsold inventory</div>
+            <p style={{ fontSize:13, color:'var(--c-text2)', marginBottom:12 }}>
+              Based on average selling price from past sales. {totalUnsoldUnits} units across {unsoldSkus.length} SKUs.
+            </p>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
+              {[
+                { label:'Potential gross revenue', value:fmtMoney(totalPotentialGross), color:'var(--c-brand)' },
+                { label:'Tied up in inventory', value:fmtMoney(totalUnsoldCost), color:'var(--c-text2)' },
+                { label:'Potential profit', value:(totalPotentialProfit>=0?'+':'')+fmtMoney(totalPotentialProfit), color:totalPotentialProfit>=0?'var(--c-green)':'var(--c-red)' },
+                { label:'Potential margin', value:totalPotentialGross>0?(totalPotentialProfit/totalPotentialGross*100).toFixed(1)+'%':'—', color:'var(--c-text)' },
+              ].map(m => (
+                <div key={m.label} className="stat-card">
+                  <div className="stat-label">{m.label}</div>
+                  <div className="stat-value" style={{ fontSize:20, color:m.color }}>{m.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* SKU Summary */}
       <div className="card">
         <div className="card-header">
@@ -241,6 +285,8 @@ export default function Reports({ orders, expenses, inventory = [] }) {
                     <th className="hide-mobile">Gross sale</th>
                     <th>Net profit (sold)</th>
                     <th>Total profit (all units)</th>
+                    <th className="hide-mobile">Potential gross</th>
+                    <th className="hide-mobile">Potential profit</th>
                     <th>Margin</th>
                   </tr>
                 </thead>
@@ -283,6 +329,22 @@ export default function Reports({ orders, expenses, inventory = [] }) {
                               )}
                             </div>
                           ) : '—'}
+                        </td>
+                        <td className="hide-mobile">
+                          {g.inStock > 0 && g.avgSellingPrice > 0 ? (
+                            <div>
+                              <div className="mono" style={{ color:'var(--c-brand)' }}>{fmtMoney(g.potentialGrossSale)}</div>
+                              <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.inStock} × {fmtMoney(g.avgSellingPrice)}</div>
+                            </div>
+                          ) : <span style={{ color:'var(--c-text3)' }}>—</span>}
+                        </td>
+                        <td className="hide-mobile">
+                          {g.inStock > 0 && g.avgSellingPrice > 0 ? (
+                            <div className={`mono ${g.potentialProfit>=0?'profit-positive':'profit-negative'}`} style={{ fontWeight:600 }}>
+                              {g.potentialProfit>=0?'+':''}{fmtMoney(g.potentialProfit)}
+                              <div style={{ fontSize:11, fontWeight:400, color:'var(--c-text3)' }}>{g.potentialMargin.toFixed(1)}% margin</div>
+                            </div>
+                          ) : <span style={{ color:'var(--c-text3)' }}>—</span>}
                         </td>
                         <td>
                           {g.grossSale > 0
