@@ -85,43 +85,6 @@ export default function Parts({ parts, partLots, setSyncing }) {
     setLineItems([{ part_name: '', color: '', quantity: '', price: '' }])
     setAddingLot(false); setSyncing(false)
   }
-      part_name: lotName,
-      purchase_date: lotHeader.purchase_date,
-      lot_price: parseFloat(lotHeader.lot_price)||0,
-      quantity: totalQty,
-      shipping: parseFloat(lotHeader.shipping)||0,
-      tariffs: parseFloat(lotHeader.tariffs)||0,
-      total_cost: lotTotal,
-      cost_per_unit: costPerUnit,
-      vendor: lotHeader.vendor.trim() || null,
-      notes: lotHeader.notes.trim() || null,
-    }).select().single()
-
-    if (lot) {
-      // Create individual parts for each line item
-      const partRecords = []
-      for (const line of validLines) {
-        const qty = parseInt(line.quantity)
-        for (let i = 0; i < qty; i++) {
-          partRecords.push({
-            lot_id: lot.id,
-            part_name: line.part_name.trim(),
-            color: line.color.trim() || null,
-            cost: costPerUnit,
-            status: 'Available',
-            purchase_date: lotHeader.purchase_date,
-          })
-        }
-      }
-      for (let i = 0; i < partRecords.length; i += 50) {
-        await supabase.from('parts').insert(partRecords.slice(i, i + 50))
-      }
-    }
-
-    setLotHeader({ purchase_date: today(), lot_price: '', shipping: '', tariffs: '', vendor: '', notes: '' })
-    setLineItems([{ part_name: '', color: '', quantity: '' }])
-    setAddingLot(false); setSyncing(false)
-  }
 
   const usePart = async () => {
     if (!useForm.part_id || !useForm.order_number.trim()) return
