@@ -9,11 +9,11 @@ export default function Parts({ parts, partLots, setSyncing }) {
 
   // Lot header form
   const [lotHeader, setLotHeader] = useState({
-    purchase_date: today(), lot_price: '', shipping: '', tariffs: '', vendor: '', notes: ''
+    purchase_date: today(), shipping: '', tariffs: '', vendor: '', notes: ''
   })
   // Line items — each part type in the lot
   const [lineItems, setLineItems] = useState([
-    { part_name: '', color: '', quantity: '' }
+    { part_name: '', color: '', quantity: '', price: '' }
   ])
   const [addingLot, setAddingLot] = useState(false)
   const [useForm, setUseForm] = useState({ part_id: '', order_number: '', notes: '' })
@@ -25,24 +25,66 @@ export default function Parts({ parts, partLots, setSyncing }) {
   const setUse = (k, v) => setUseForm(prev => ({ ...prev, [k]: v }))
 
   const updateLine = (i, k, v) => setLineItems(prev => prev.map((l, idx) => idx === i ? { ...l, [k]: v } : l))
-  const addLine = () => setLineItems(prev => [...prev, { part_name: '', color: '', quantity: '' }])
+  const addLine = () => setLineItems(prev => [...prev, { part_name: '', color: '', quantity: '', price: '' }])
   const removeLine = (i) => setLineItems(prev => prev.filter((_, idx) => idx !== i))
 
   const totalQty = lineItems.reduce((s, l) => s + (parseInt(l.quantity)||0), 0)
-  const lotTotal = (parseFloat(lotHeader.lot_price)||0) + (parseFloat(lotHeader.shipping)||0) + (parseFloat(lotHeader.tariffs)||0)
-  const costPerUnit = totalQty > 0 ? lotTotal / totalQty : 0
+  const partsSubtotal = lineItems.reduce((s, l) => s + (parseFloat(l.price)||0) * (parseInt(l.quantity)||0), 0)
+  const shippingTotal = parseFloat(lotHeader.shipping)||0
+  const tariffsTotal = parseFloat(lotHeader.tariffs)||0
+  const lotTotal = partsSubtotal + shippingTotal + tariffsTotal
+  const shippingPerUnit = totalQty > 0 ? shippingTotal / totalQty : 0
+  const tariffsPerUnit = totalQty > 0 ? tariffsTotal / totalQty : 0
 
   const submitLot = async () => {
     const validLines = lineItems.filter(l => l.part_name.trim() && parseInt(l.quantity) > 0)
-    if (validLines.length === 0 || !lotHeader.lot_price) return
+    if (validLines.length === 0 || partsSubtotal === 0) return
     setAddingLot(true); setSyncing(true)
 
-    // Create lot record with summary name
     const lotName = validLines.length === 1
       ? validLines[0].part_name.trim()
       : `Assorted (${validLines.length} types)`
 
     const { data: lot } = await supabase.from('part_lots').insert({
+      part_name: lotName,
+      purchase_date: lotHeader.purchase_date,
+      lot_price: partsSubtotal,
+      quantity: totalQty,
+      shipping: shippingTotal,
+      tariffs: tariffsTotal,
+      total_cost: lotTotal,
+      cost_per_unit: totalQty > 0 ? lotTotal / totalQty : 0,
+      vendor: lotHeader.vendor.trim() || null,
+      notes: lotHeader.notes.trim() || null,
+    }).select().single()
+
+    if (lot) {
+      const partRecords = []
+      for (const line of validLines) {
+        const qty = parseInt(line.quantity)
+        const partPrice = parseFloat(line.price)||0
+        // Each part's cost = its own price + its share of shipping + tariffs
+        const costPerThisPart = partPrice + shippingPerUnit + tariffsPerUnit
+        for (let i = 0; i < qty; i++) {
+          partRecords.push({
+            lot_id: lot.id,
+            part_name: line.part_name.trim(),
+            color: line.color.trim() || null,
+            cost: costPerThisPart,
+            status: 'Available',
+            purchase_date: lotHeader.purchase_date,
+          })
+        }
+      }
+      for (let i = 0; i < partRecords.length; i += 50) {
+        await supabase.from('parts').insert(partRecords.slice(i, i + 50))
+      }
+    }
+
+    setLotHeader({ purchase_date: today(), shipping: '', tariffs: '', vendor: '', notes: '' })
+    setLineItems([{ part_name: '', color: '', quantity: '', price: '' }])
+    setAddingLot(false); setSyncing(false)
+  }
       part_name: lotName,
       purchase_date: lotHeader.purchase_date,
       lot_price: parseFloat(lotHeader.lot_price)||0,
@@ -160,15 +202,11 @@ export default function Parts({ parts, partLots, setSyncing }) {
           <div className="card">
             <div className="card-title">Add parts lot</div>
 
-            {/* Lot header — pricing and logistics */}
+            {/* Lot header */}
             <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
               <div className="form-group">
                 <label className="form-label">Purchase date</label>
                 <input type="date" value={lotHeader.purchase_date} onChange={e => setHeader('purchase_date', e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Lot price $ *</label>
-                <input type="number" placeholder="0.00" min="0" step="0.01" value={lotHeader.lot_price} onChange={e => setHeader('lot_price', e.target.value)} />
               </div>
               <div className="form-group">
                 <label className="form-label">Shipping $</label>
@@ -178,39 +216,41 @@ export default function Parts({ parts, partLots, setSyncing }) {
                 <label className="form-label">Tariffs $</label>
                 <input type="number" placeholder="0.00" min="0" step="0.01" value={lotHeader.tariffs} onChange={e => setHeader('tariffs', e.target.value)} />
               </div>
-            </div>
-            <div className="form-grid form-grid-2" style={{ marginBottom:14 }}>
               <div className="form-group">
                 <label className="form-label">Vendor</label>
                 <input type="text" placeholder="e.g. iFixit, AliExpress" value={lotHeader.vendor} onChange={e => setHeader('vendor', e.target.value)} />
               </div>
+            </div>
+            <div className="form-grid form-grid-2" style={{ marginBottom:14 }}>
               <div className="form-group">
                 <label className="form-label">Notes</label>
                 <input type="text" placeholder="Any notes about this lot" value={lotHeader.notes} onChange={e => setHeader('notes', e.target.value)} />
               </div>
             </div>
 
-            {/* Line items — part types */}
+            {/* Line items */}
             <div style={{ marginBottom:10 }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                 <label className="form-label" style={{ margin:0 }}>Parts in this lot *</label>
                 <button className="btn btn-sm" onClick={addLine}>+ Add part type</button>
               </div>
-              {/* Header row */}
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 120px 80px 28px', gap:6, marginBottom:4, padding:'0 4px' }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 100px 70px 90px 28px', gap:6, marginBottom:4, padding:'0 4px' }}>
                 <span style={{ fontSize:11, color:'var(--c-text3)' }}>Part name</span>
                 <span style={{ fontSize:11, color:'var(--c-text3)' }}>Color</span>
                 <span style={{ fontSize:11, color:'var(--c-text3)' }}>Qty</span>
+                <span style={{ fontSize:11, color:'var(--c-text3)' }}>Price ea $</span>
                 <span></span>
               </div>
               {lineItems.map((line, i) => (
-                <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 120px 80px 28px', gap:6, marginBottom:6 }}>
+                <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 100px 70px 90px 28px', gap:6, marginBottom:6 }}>
                   <input type="text" placeholder="e.g. iPhone 12 Screen" value={line.part_name}
                     onChange={e => updateLine(i, 'part_name', e.target.value)} />
-                  <input type="text" placeholder="e.g. Black" value={line.color}
+                  <input type="text" placeholder="Black" value={line.color}
                     onChange={e => updateLine(i, 'color', e.target.value)} />
                   <input type="number" placeholder="0" min="1" step="1" value={line.quantity}
                     onChange={e => updateLine(i, 'quantity', e.target.value)} />
+                  <input type="number" placeholder="0.00" min="0" step="0.01" value={line.price}
+                    onChange={e => updateLine(i, 'price', e.target.value)} />
                   <button className="btn btn-sm btn-danger" onClick={() => removeLine(i)}
                     disabled={lineItems.length === 1} style={{ padding:'0 8px' }}>×</button>
                 </div>
@@ -218,22 +258,24 @@ export default function Parts({ parts, partLots, setSyncing }) {
             </div>
 
             {/* Cost breakdown preview */}
-            {lotHeader.lot_price && totalQty > 0 && (
+            {partsSubtotal > 0 && totalQty > 0 && (
               <div style={{ padding:'10px 14px', background:'var(--c-surface2)', borderRadius:8, marginBottom:12, fontSize:13 }}>
-                <div style={{ display:'flex', gap:16, flexWrap:'wrap', marginBottom: lineItems.filter(l=>l.part_name&&l.quantity).length > 1 ? 8 : 0 }}>
-                  <span>Total: <strong>{fmtMoney(lotTotal)}</strong></span>
-                  <span>Total qty: <strong>{totalQty}</strong></span>
-                  <span>Cost per unit: <strong style={{ color:'var(--c-brand)' }}>{fmtMoney(costPerUnit)}</strong></span>
+                <div style={{ display:'flex', gap:16, flexWrap:'wrap', marginBottom:8 }}>
+                  <span>Parts: <strong>{fmtMoney(partsSubtotal)}</strong></span>
+                  {shippingTotal > 0 && <span>+ Shipping: <strong>{fmtMoney(shippingTotal)}</strong> ({fmtMoney(shippingPerUnit)}/unit)</span>}
+                  {tariffsTotal > 0 && <span>+ Tariffs: <strong>{fmtMoney(tariffsTotal)}</strong> ({fmtMoney(tariffsPerUnit)}/unit)</span>}
+                  <span>= <strong>Total: {fmtMoney(lotTotal)}</strong></span>
                 </div>
-                {lineItems.filter(l => l.part_name.trim() && parseInt(l.quantity) > 0).length > 1 && (
-                  <div style={{ borderTop:'1px solid var(--c-border)', paddingTop:6, display:'flex', flexWrap:'wrap', gap:8 }}>
-                    {lineItems.filter(l => l.part_name.trim() && parseInt(l.quantity) > 0).map((l, i) => (
-                      <span key={i} style={{ fontSize:12, color:'var(--c-text2)' }}>
-                        {l.part_name.trim()}{l.color ? ` (${l.color})` : ''}: <strong>{parseInt(l.quantity)} × {fmtMoney(costPerUnit)}</strong>
-                      </span>
-                    ))}
-                  </div>
-                )}
+                {lineItems.filter(l => l.part_name.trim() && parseInt(l.quantity) > 0 && parseFloat(l.price) > 0).map((l, i) => {
+                  const costPerThisPart = (parseFloat(l.price)||0) + shippingPerUnit + tariffsPerUnit
+                  return (
+                    <div key={i} style={{ fontSize:12, color:'var(--c-text2)', marginBottom:2 }}>
+                      {l.part_name.trim()}{l.color ? ` (${l.color})` : ''}: {parseInt(l.quantity)} × {fmtMoney(parseFloat(l.price)||0)}
+                      {(shippingTotal > 0 || tariffsTotal > 0) && <span style={{ color:'var(--c-text3)' }}> + {fmtMoney(shippingPerUnit + tariffsPerUnit)} fees</span>}
+                      {' = '}<strong style={{ color:'var(--c-brand)' }}>{fmtMoney(costPerThisPart)}/unit</strong>
+                    </div>
+                  )
+                })}
               </div>
             )}
             <button className="btn btn-primary" onClick={submitLot} disabled={addingLot}>{addingLot ? 'Saving…' : 'Add lot'}</button>
