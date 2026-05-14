@@ -6,27 +6,34 @@ import Inventory from './components/Inventory'
 import BizExpenses from './components/BizExpenses'
 import Reports from './components/Reports'
 import ProfitCalc from './components/ProfitCalc'
+import Parts from './components/Parts'
 import './App.css'
 
-const TABS = ['Dashboard', 'Orders', 'Inventory', 'Expenses', 'Reports', 'Calc']
+const TABS = ['Dashboard', 'Orders', 'Inventory', 'Parts', 'Expenses', 'Reports', 'Calc']
 
 export default function App() {
   const [tab, setTab] = useState('Dashboard')
   const [orders, setOrders] = useState([])
   const [inventory, setInventory] = useState([])
   const [expenses, setExpenses] = useState([])
+  const [parts, setParts] = useState([])
+  const [partLots, setPartLots] = useState([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
 
   const fetchAll = useCallback(async () => {
-    const [{ data: ordData }, { data: invData }, { data: expData }] = await Promise.all([
+    const [{ data: ordData }, { data: invData }, { data: expData }, { data: partsData }, { data: lotsData }] = await Promise.all([
       supabase.from('orders').select('*').order('sale_date', { ascending: false }),
       supabase.from('inventory').select('*').order('created_at', { ascending: false }),
       supabase.from('biz_expenses').select('*').order('expense_date', { ascending: false }),
+      supabase.from('parts').select('*').order('created_at', { ascending: false }),
+      supabase.from('part_lots').select('*').order('purchase_date', { ascending: false }),
     ])
     if (ordData) setOrders(ordData)
     if (invData) setInventory(invData)
     if (expData) setExpenses(expData)
+    if (partsData) setParts(partsData)
+    if (lotsData) setPartLots(lotsData)
     setLoading(false)
   }, [])
 
@@ -36,6 +43,8 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchAll)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, fetchAll)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'biz_expenses' }, fetchAll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'parts' }, fetchAll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'part_lots' }, fetchAll)
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [fetchAll])
@@ -74,6 +83,7 @@ export default function App() {
         {tab === 'Dashboard' && <Dashboard orders={orders} inventory={inventory} expenses={expenses} />}
         {tab === 'Orders' && <Orders orders={orders} inventory={inventory} setSyncing={setSyncing} />}
         {tab === 'Inventory' && <Inventory inventory={inventory} setSyncing={setSyncing} />}
+        {tab === 'Parts' && <Parts parts={parts} partLots={partLots} setSyncing={setSyncing} />}
         {tab === 'Expenses' && <BizExpenses expenses={expenses} setSyncing={setSyncing} />}
         {tab === 'Reports' && <Reports orders={orders} expenses={expenses} inventory={inventory} />}
         {tab === 'Calc' && <ProfitCalc />}
