@@ -16,10 +16,13 @@ export default function Parts({ parts, partLots, setSyncing }) {
     { part_name: '', color: '', quantity: '', price: '' }
   ])
   const [addingLot, setAddingLot] = useState(false)
-  const [useForm, setUseForm] = useState({ part_id: '', order_number: '', notes: '' })
+  const [useForm, setUseForm] = useState({ part_id: '', order_number: '', serial_number: '', notes: '' })
   const [usingPart, setUsingPart] = useState(false)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('Available')
+  const [expandedLots, setExpandedLots] = useState({})
+  const [addingToLot, setAddingToLot] = useState(null) // lot id being added to
+  const [addToLotLine, setAddToLotLine] = useState({ part_name:'', color:'', quantity:'', price:'' })
 
   const setHeader = (k, v) => setLotHeader(prev => ({ ...prev, [k]: v }))
   const setUse = (k, v) => setUseForm(prev => ({ ...prev, [k]: v }))
@@ -92,9 +95,10 @@ export default function Parts({ parts, partLots, setSyncing }) {
     await supabase.from('parts').update({
       status: 'Used',
       order_number: useForm.order_number.trim(),
+      serial_number: useForm.serial_number.trim() || null,
       notes: useForm.notes.trim() || null,
     }).eq('id', useForm.part_id)
-    setUseForm({ part_id:'', order_number:'', notes:'' })
+    setUseForm({ part_id:'', order_number:'', serial_number:'', notes:'' })
     setUsingPart(false); setSyncing(false)
   }
 
@@ -113,7 +117,41 @@ export default function Parts({ parts, partLots, setSyncing }) {
     setSyncing(false)
   }
 
-  const availableParts = parts.filter(p => p.status === 'Available')
+  const addPartsToLot = async (lot) => {
+    const qty = parseInt(addToLotLine.quantity)
+    if (!addToLotLine.part_name.trim() || !qty || qty < 1) return
+    setSyncing(true)
+    // Recalculate cost per unit for the existing lot based on new total qty
+    const newTotalQty = lot.quantity + qty
+    const partPrice = parseFloat(addToLotLine.price) || 0
+    const addedSubtotal = partPrice * qty
+    const newLotPrice = (parseFloat(lot.lot_price)||0) + addedSubtotal
+    const newTotal = newLotPrice + (parseFloat(lot.shipping)||0) + (parseFloat(lot.tariffs)||0)
+    const newCostPerUnit = newTotalQty > 0 ? newTotal / newTotalQty : 0
+    const costForThisPart = partPrice + (parseFloat(lot.shipping)||0)/newTotalQty + (parseFloat(lot.tariffs)||0)/newTotalQty
+    // Update lot totals
+    await supabase.from('part_lots').update({
+      quantity: newTotalQty,
+      lot_price: newLotPrice,
+      total_cost: newTotal,
+      cost_per_unit: newCostPerUnit,
+    }).eq('id', lot.id)
+    // Create new part records
+    const partRecords = Array.from({ length: qty }, () => ({
+      lot_id: lot.id,
+      part_name: addToLotLine.part_name.trim(),
+      color: addToLotLine.color.trim() || null,
+      cost: costForThisPart,
+      status: 'Available',
+      purchase_date: lot.purchase_date,
+    }))
+    for (let i = 0; i < partRecords.length; i += 50) {
+      await supabase.from('parts').insert(partRecords.slice(i, i + 50))
+    }
+    setAddingToLot(null)
+    setAddToLotLine({ part_name:'', color:'', quantity:'', price:'' })
+    setSyncing(false)
+  }
   const usedParts = parts.filter(p => p.status === 'Used')
   const totalSpent = partLots.reduce((s, l) => s + parseFloat(l.total_cost||0), 0)
   const availableValue = availableParts.reduce((s, p) => s + parseFloat(p.cost||0), 0)
@@ -248,45 +286,86 @@ export default function Parts({ parts, partLots, setSyncing }) {
             <div className="card-title">{partLots.length} purchase lots · {fmtMoney(totalSpent)} total</div>
             {partLots.length === 0
               ? <div className="empty"><div className="empty-icon">📦</div>No lots yet.</div>
-              : (
-                <div style={{ overflowX:'auto' }}>
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Part</th>
-                        <th>Color</th>
-                        <th>Qty</th>
-                        <th className="hide-mobile">Lot price</th>
-                        <th className="hide-mobile">Shipping</th>
-                        <th className="hide-mobile">Tariffs</th>
-                        <th>Total</th>
-                        <th>Per unit</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...partLots].sort((a,b) => b.purchase_date?.localeCompare(a.purchase_date)).map(l => (
-                        <tr key={l.id}>
-                          <td style={{ fontSize:12, color:'var(--c-text2)' }}>{l.purchase_date}</td>
-                          <td style={{ fontWeight:500 }}>
-                            {l.part_name}
-                            {l.notes && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{l.notes}</div>}
-                          </td>
-                          <td style={{ fontSize:12, color:'var(--c-text2)' }}>{l.color || '—'}</td>
-                          <td style={{ color:'var(--c-text2)' }}>{l.quantity}</td>
-                          <td className="hide-mobile mono">{fmtMoney(l.lot_price)}</td>
-                          <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{parseFloat(l.shipping||0)>0?fmtMoney(l.shipping):'—'}</td>
-                          <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{parseFloat(l.tariffs||0)>0?fmtMoney(l.tariffs):'—'}</td>
-                          <td className="mono" style={{ fontWeight:500 }}>{fmtMoney(l.total_cost)}</td>
-                          <td className="mono" style={{ color:'var(--c-brand)' }}>{fmtMoney(l.cost_per_unit)}</td>
-                          <td><button className="btn btn-sm btn-danger" onClick={() => deleteLot(l.id)}>×</button></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
+              : [...partLots].sort((a,b) => b.purchase_date?.localeCompare(a.purchase_date)).map(l => {
+                  const lotParts = parts.filter(p => p.lot_id === l.id)
+                  const isExpanded = expandedLots[l.id]
+                  const isAddingToThis = addingToLot === l.id
+                  return (
+                    <div key={l.id} style={{ marginBottom:12 }}>
+                      {/* Lot header row */}
+                      <div style={{ display:'grid', gridTemplateColumns:'80px 1fr 60px 80px 80px 80px 90px 90px 80px', gap:6, alignItems:'center', padding:'8px 4px', borderBottom:'1px solid var(--c-border)', fontSize:13 }}>
+                        <span style={{ color:'var(--c-text2)', fontSize:12 }}>{l.purchase_date}</span>
+                        <span style={{ fontWeight:500 }}>{l.part_name}{l.notes && <span style={{ fontSize:11, color:'var(--c-text3)', marginLeft:6 }}>{l.notes}</span>}</span>
+                        <span style={{ color:'var(--c-text2)' }}>{l.quantity}</span>
+                        <span className="mono">{fmtMoney(l.lot_price)}</span>
+                        <span className="mono" style={{ color:'var(--c-amber)' }}>{parseFloat(l.shipping||0)>0?fmtMoney(l.shipping):'—'}</span>
+                        <span className="mono" style={{ color:'var(--c-amber)' }}>{parseFloat(l.tariffs||0)>0?fmtMoney(l.tariffs):'—'}</span>
+                        <span className="mono" style={{ fontWeight:500 }}>{fmtMoney(l.total_cost)}</span>
+                        <span className="mono" style={{ color:'var(--c-brand)' }}>{fmtMoney(l.cost_per_unit)}</span>
+                        <div style={{ display:'flex', gap:4 }}>
+                          <button className="btn btn-sm" onClick={() => setExpandedLots(prev => ({ ...prev, [l.id]: !isExpanded }))}>
+                            {isExpanded ? 'Hide' : 'Parts'}
+                          </button>
+                          <button className="btn btn-sm btn-danger" onClick={() => deleteLot(l.id)}>×</button>
+                        </div>
+                      </div>
+
+                      {/* Expanded parts list */}
+                      {isExpanded && (
+                        <div style={{ padding:'8px 0 4px 12px' }}>
+                          <div style={{ fontSize:12, color:'var(--c-text3)', marginBottom:6 }}>{lotParts.length} parts in this lot</div>
+                          {lotParts.length > 0 && (
+                            <table className="data-table" style={{ marginBottom:10 }}>
+                              <thead>
+                                <tr>
+                                  <th>Part</th>
+                                  <th>Color</th>
+                                  <th>Cost</th>
+                                  <th>Status</th>
+                                  <th>Order #</th>
+                                  <th>Serial #</th>
+                                  <th></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lotParts.map(p => (
+                                  <tr key={p.id}>
+                                    <td>{p.part_name}</td>
+                                    <td style={{ fontSize:12, color:'var(--c-text2)' }}>{p.color || '—'}</td>
+                                    <td className="mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(p.cost)}</td>
+                                    <td><span className={`badge ${p.status==='Available'?'badge-green':'badge-gray'}`}>{p.status}</span></td>
+                                    <td style={{ fontSize:12, color:'var(--c-text2)', fontFamily:"'DM Mono',monospace" }}>{p.order_number || '—'}</td>
+                                    <td style={{ fontSize:12, color:'var(--c-text2)', fontFamily:"'DM Mono',monospace" }}>{p.serial_number || '—'}</td>
+                                    <td><button className="btn btn-sm btn-danger" onClick={() => deletePart(p.id)}>×</button></td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+
+                          {/* Add part to this lot */}
+                          {isAddingToThis ? (
+                            <div>
+                              <div style={{ display:'grid', gridTemplateColumns:'1fr 100px 70px 90px 28px', gap:6, marginBottom:6 }}>
+                                <input type="text" placeholder="Part name" value={addToLotLine.part_name} onChange={e => setAddToLotLine(prev => ({ ...prev, part_name: e.target.value }))} />
+                                <input type="text" placeholder="Color" value={addToLotLine.color} onChange={e => setAddToLotLine(prev => ({ ...prev, color: e.target.value }))} />
+                                <input type="number" placeholder="Qty" min="1" value={addToLotLine.quantity} onChange={e => setAddToLotLine(prev => ({ ...prev, quantity: e.target.value }))} />
+                                <input type="number" placeholder="Price ea $" min="0" step="0.01" value={addToLotLine.price} onChange={e => setAddToLotLine(prev => ({ ...prev, price: e.target.value }))} />
+                                <span></span>
+                              </div>
+                              <div style={{ display:'flex', gap:8 }}>
+                                <button className="btn btn-primary btn-sm" onClick={() => addPartsToLot(l)}>Add parts</button>
+                                <button className="btn btn-sm" onClick={() => { setAddingToLot(null); setAddToLotLine({ part_name:'', color:'', quantity:'', price:'' }) }}>Cancel</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button className="btn btn-sm" onClick={() => setAddingToLot(l.id)}>+ Add part type to this lot</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
             }
           </div>
         </div>
@@ -320,6 +399,7 @@ export default function Parts({ parts, partLots, setSyncing }) {
                       <th>Cost</th>
                       <th>Status</th>
                       <th className="hide-mobile">Order #</th>
+                      <th className="hide-mobile">Serial #</th>
                       <th className="hide-mobile">Purchase date</th>
                       <th></th>
                     </tr>
@@ -333,6 +413,9 @@ export default function Parts({ parts, partLots, setSyncing }) {
                         <td><span className={`badge ${p.status==='Available'?'badge-green':'badge-gray'}`}>{p.status}</span></td>
                         <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>
                           {p.order_number || '—'}
+                        </td>
+                        <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>
+                          {p.serial_number || '—'}
                         </td>
                         <td className="hide-mobile" style={{ fontSize:12, color:'var(--c-text3)' }}>{p.purchase_date || '—'}</td>
                         <td><button className="btn btn-sm btn-danger" onClick={() => deletePart(p.id)}>×</button></td>
@@ -368,6 +451,10 @@ export default function Parts({ parts, partLots, setSyncing }) {
                 <div className="form-group">
                   <label className="form-label">Order number *</label>
                   <input type="text" placeholder="e.g. 12-34567-89012" value={useForm.order_number} onChange={e => setUse('order_number', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Item serial number (optional)</label>
+                  <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={useForm.serial_number} onChange={e => setUse('serial_number', e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Notes (optional)</label>
