@@ -119,14 +119,14 @@ export default function Parts({ parts, partLots, setSyncing }) {
   const savePart = async (id) => {
     setSyncing(true)
     await supabase.from('parts').update({
-      part_name: editPartForm.part_name,
-      brand: editPartForm.brand || null,
-      color: editPartForm.color || null,
+      part_name: (editPartForm.part_name||'').trim(),
+      brand: (editPartForm.brand||'').trim() || null,
+      color: (editPartForm.color||'').trim() || null,
       cost: parseFloat(editPartForm.cost)||0,
       status: editPartForm.status,
-      order_number: editPartForm.order_number || null,
-      serial_number: editPartForm.serial_number || null,
-      notes: editPartForm.notes || null,
+      order_number: (editPartForm.order_number||'').trim() || null,
+      serial_number: (editPartForm.serial_number||'').trim() || null,
+      notes: (editPartForm.notes||'').trim() || null,
     }).eq('id', id)
     setEditPartId(null)
     setSyncing(false)
