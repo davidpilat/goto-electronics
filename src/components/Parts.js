@@ -45,7 +45,7 @@ export default function Parts({ parts, partLots, setSyncing }) {
   const tariffsPerUnit = totalQty > 0 ? tariffsTotal / totalQty : 0
 
   const submitLot = async () => {
-    const validLines = lineItems.filter(l => l.part_name.trim() && parseInt(l.quantity) > 0)
+    const validLines = lineItems.filter(l => (l.part_name||'').trim() && parseInt(l.quantity) > 0)
     if (validLines.length === 0 || partsSubtotal === 0) return
     setAddingLot(true); setSyncing(true)
 
@@ -78,8 +78,8 @@ export default function Parts({ parts, partLots, setSyncing }) {
           partRecords.push({
             lot_id: lot.id,
             part_name: line.part_name.trim(),
-            color: line.color.trim() || null,
-            brand: line.brand.trim() || null,
+            color: (line.color||'').trim() || null,
+            brand: (line.brand||'').trim() || null,
             cost: costPerThisPart,
             status: 'Available',
             purchase_date: lotHeader.purchase_date,
