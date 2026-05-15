@@ -9,7 +9,7 @@ export default function Parts({ parts, partLots, setSyncing }) {
 
   // Lot header form
   const [lotHeader, setLotHeader] = useState({
-    purchase_date: today(), shipping: '', tariffs: '', vendor: '', notes: ''
+    purchase_date: today(), brand: '', shipping: '', tariffs: '', vendor: '', notes: ''
   })
   // Line items — each part type in the lot
   const [lineItems, setLineItems] = useState([
@@ -21,8 +21,11 @@ export default function Parts({ parts, partLots, setSyncing }) {
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('Available')
   const [expandedLots, setExpandedLots] = useState({})
-  const [addingToLot, setAddingToLot] = useState(null) // lot id being added to
+  const [addingToLot, setAddingToLot] = useState(null)
   const [addToLotLine, setAddToLotLine] = useState({ part_name:'', color:'', quantity:'', price:'' })
+  // Cascading selectors for Use a Part
+  const [filterBrand, setFilterBrand] = useState('')
+  const [filterColor, setFilterColor] = useState('')
 
   const setHeader = (k, v) => setLotHeader(prev => ({ ...prev, [k]: v }))
   const setUse = (k, v) => setUseForm(prev => ({ ...prev, [k]: v }))
@@ -50,6 +53,7 @@ export default function Parts({ parts, partLots, setSyncing }) {
 
     const { data: lot } = await supabase.from('part_lots').insert({
       part_name: lotName,
+      brand: lotHeader.brand.trim() || null,
       purchase_date: lotHeader.purchase_date,
       lot_price: partsSubtotal,
       quantity: totalQty,
@@ -73,6 +77,7 @@ export default function Parts({ parts, partLots, setSyncing }) {
             lot_id: lot.id,
             part_name: line.part_name.trim(),
             color: line.color.trim() || null,
+            brand: lotHeader.brand.trim() || null,
             cost: costPerThisPart,
             status: 'Available',
             purchase_date: lotHeader.purchase_date,
@@ -84,7 +89,7 @@ export default function Parts({ parts, partLots, setSyncing }) {
       }
     }
 
-    setLotHeader({ purchase_date: today(), shipping: '', tariffs: '', vendor: '', notes: '' })
+    setLotHeader({ purchase_date: today(), brand: '', shipping: '', tariffs: '', vendor: '', notes: '' })
     setLineItems([{ part_name: '', color: '', quantity: '', price: '' }])
     setAddingLot(false); setSyncing(false)
   }
@@ -212,6 +217,10 @@ export default function Parts({ parts, partLots, setSyncing }) {
                 <input type="date" value={lotHeader.purchase_date} onChange={e => setHeader('purchase_date', e.target.value)} />
               </div>
               <div className="form-group">
+                <label className="form-label">Brand</label>
+                <input type="text" placeholder="e.g. Apple, Samsung, Bose" value={lotHeader.brand} onChange={e => setHeader('brand', e.target.value)} />
+              </div>
+              <div className="form-group">
                 <label className="form-label">Shipping $</label>
                 <input type="number" placeholder="0.00" min="0" step="0.01" value={lotHeader.shipping} onChange={e => setHeader('shipping', e.target.value)} />
               </div>
@@ -219,12 +228,12 @@ export default function Parts({ parts, partLots, setSyncing }) {
                 <label className="form-label">Tariffs $</label>
                 <input type="number" placeholder="0.00" min="0" step="0.01" value={lotHeader.tariffs} onChange={e => setHeader('tariffs', e.target.value)} />
               </div>
+            </div>
+            <div className="form-grid form-grid-2" style={{ marginBottom:14 }}>
               <div className="form-group">
                 <label className="form-label">Vendor</label>
                 <input type="text" placeholder="e.g. iFixit, AliExpress" value={lotHeader.vendor} onChange={e => setHeader('vendor', e.target.value)} />
               </div>
-            </div>
-            <div className="form-grid form-grid-2" style={{ marginBottom:14 }}>
               <div className="form-group">
                 <label className="form-label">Notes</label>
                 <input type="text" placeholder="Any notes about this lot" value={lotHeader.notes} onChange={e => setHeader('notes', e.target.value)} />
@@ -435,38 +444,90 @@ export default function Parts({ parts, partLots, setSyncing }) {
       {activeTab === 'use' && (
         <div className="card">
           <div className="card-title">Use a part on an order</div>
-          {Object.keys(availableGroups).length === 0
+          {availableParts.length === 0
             ? <div className="empty"><div className="empty-icon">🔧</div>No available parts.</div>
-            : (
-              <div style={{ display:'flex', flexDirection:'column', gap:10, maxWidth:480 }}>
-                <div className="form-group">
-                  <label className="form-label">Select part *</label>
-                  <select value={useForm.part_id} onChange={e => setUse('part_id', e.target.value)}>
-                    <option value="">— Choose a part —</option>
-                    {Object.entries(availableGroups).map(([key, items]) => (
-                      <option key={items[0].id} value={items[0].id}>
-                        {key} · {items.length} available · {fmtMoney(items[0].cost)} ea
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Order number *</label>
-                  <input type="text" placeholder="e.g. 12-34567-89012" value={useForm.order_number} onChange={e => setUse('order_number', e.target.value)} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Item serial number (optional)</label>
-                  <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={useForm.serial_number} onChange={e => setUse('serial_number', e.target.value)} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Notes (optional)</label>
-                  <input type="text" placeholder="e.g. Screen replacement" value={useForm.notes} onChange={e => setUse('notes', e.target.value)} />
-                </div>
-                <button className="btn btn-primary" style={{ alignSelf:'flex-start' }} onClick={usePart} disabled={usingPart}>
-                  {usingPart ? 'Saving…' : 'Mark part as used'}
-                </button>
-              </div>
-            )
+            : (() => {
+                // Build cascading options from available parts
+                const brands = [...new Set(availableParts.map(p => p.brand).filter(Boolean))].sort()
+                const hasBrands = brands.length > 0
+
+                const partsAfterBrand = filterBrand
+                  ? availableParts.filter(p => p.brand === filterBrand)
+                  : availableParts
+
+                const colors = [...new Set(partsAfterBrand.map(p => p.color).filter(Boolean))].sort()
+
+                const partsAfterColor = filterColor
+                  ? partsAfterBrand.filter(p => p.color === filterColor)
+                  : partsAfterBrand
+
+                // Group final filtered parts by name
+                const partGroups = {}
+                partsAfterColor.forEach(p => {
+                  const key = p.part_name
+                  if (!partGroups[key]) partGroups[key] = []
+                  partGroups[key].push(p)
+                })
+
+                return (
+                  <div style={{ display:'flex', flexDirection:'column', gap:10, maxWidth:520 }}>
+                    {/* Step 1: Brand */}
+                    {hasBrands && (
+                      <div className="form-group">
+                        <label className="form-label">1. Brand</label>
+                        <select value={filterBrand} onChange={e => { setFilterBrand(e.target.value); setFilterColor(''); setUse('part_id', '') }}>
+                          <option value="">— All brands —</option>
+                          {brands.map(b => (
+                            <option key={b} value={b}>{b} ({availableParts.filter(p => p.brand === b).length} parts)</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Step 2: Color */}
+                    {colors.length > 0 && (
+                      <div className="form-group">
+                        <label className="form-label">{hasBrands ? '2.' : '1.'} Color</label>
+                        <select value={filterColor} onChange={e => { setFilterColor(e.target.value); setUse('part_id', '') }}>
+                          <option value="">— All colors —</option>
+                          {colors.map(c => (
+                            <option key={c} value={c}>{c} ({partsAfterBrand.filter(p => p.color === c).length} parts)</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Step 3: Part */}
+                    <div className="form-group">
+                      <label className="form-label">{hasBrands ? '3.' : colors.length > 0 ? '2.' : '1.'} Select part *</label>
+                      <select value={useForm.part_id} onChange={e => setUse('part_id', e.target.value)}>
+                        <option value="">— Choose a part —</option>
+                        {Object.entries(partGroups).map(([name, items]) => (
+                          <option key={items[0].id} value={items[0].id}>
+                            {name} · {items.length} available · {fmtMoney(items[0].cost)} ea
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Order number *</label>
+                      <input type="text" placeholder="e.g. 12-34567-89012" value={useForm.order_number} onChange={e => setUse('order_number', e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Item serial number (optional)</label>
+                      <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={useForm.serial_number} onChange={e => setUse('serial_number', e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Notes (optional)</label>
+                      <input type="text" placeholder="e.g. Screen replacement" value={useForm.notes} onChange={e => setUse('notes', e.target.value)} />
+                    </div>
+                    <button className="btn btn-primary" style={{ alignSelf:'flex-start' }} onClick={usePart} disabled={usingPart}>
+                      {usingPart ? 'Saving…' : 'Mark part as used'}
+                    </button>
+                  </div>
+                )
+              })()
           }
         </div>
       )}
