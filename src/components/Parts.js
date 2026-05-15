@@ -9,11 +9,11 @@ export default function Parts({ parts, partLots, setSyncing }) {
 
   // Lot header form
   const [lotHeader, setLotHeader] = useState({
-    purchase_date: today(), brand: '', shipping: '', tariffs: '', vendor: '', notes: ''
+    purchase_date: today(), shipping: '', tariffs: '', vendor: '', notes: ''
   })
   // Line items — each part type in the lot
   const [lineItems, setLineItems] = useState([
-    { part_name: '', color: '', quantity: '', price: '' }
+    { part_name: '', brand: '', color: '', quantity: '', price: '' }
   ])
   const [addingLot, setAddingLot] = useState(false)
   const [useForm, setUseForm] = useState({ part_id: '', order_number: '', serial_number: '', notes: '' })
@@ -33,7 +33,7 @@ export default function Parts({ parts, partLots, setSyncing }) {
   const setUse = (k, v) => setUseForm(prev => ({ ...prev, [k]: v }))
 
   const updateLine = (i, k, v) => setLineItems(prev => prev.map((l, idx) => idx === i ? { ...l, [k]: v } : l))
-  const addLine = () => setLineItems(prev => [...prev, { part_name: '', color: '', quantity: '', price: '' }])
+  const addLine = () => setLineItems(prev => [...prev, { part_name: '', brand: '', color: '', quantity: '', price: '' }])
   const removeLine = (i) => setLineItems(prev => prev.filter((_, idx) => idx !== i))
 
   const totalQty = lineItems.reduce((s, l) => s + (parseInt(l.quantity)||0), 0)
@@ -79,7 +79,7 @@ export default function Parts({ parts, partLots, setSyncing }) {
             lot_id: lot.id,
             part_name: line.part_name.trim(),
             color: line.color.trim() || null,
-            brand: lotHeader.brand.trim() || null,
+            brand: line.brand.trim() || null,
             cost: costPerThisPart,
             status: 'Available',
             purchase_date: lotHeader.purchase_date,
@@ -91,8 +91,8 @@ export default function Parts({ parts, partLots, setSyncing }) {
       }
     }
 
-    setLotHeader({ purchase_date: today(), brand: '', shipping: '', tariffs: '', vendor: '', notes: '' })
-    setLineItems([{ part_name: '', color: '', quantity: '', price: '' }])
+    setLotHeader({ purchase_date: today(), shipping: '', tariffs: '', vendor: '', notes: '' })
+    setLineItems([{ part_name: '', brand: '', color: '', quantity: '', price: '' }])
     setAddingLot(false); setSyncing(false)
   }
 
@@ -235,8 +235,8 @@ export default function Parts({ parts, partLots, setSyncing }) {
                 <input type="date" value={lotHeader.purchase_date} onChange={e => setHeader('purchase_date', e.target.value)} />
               </div>
               <div className="form-group">
-                <label className="form-label">Brand</label>
-                <input type="text" placeholder="e.g. Apple, Samsung, Bose" value={lotHeader.brand} onChange={e => setHeader('brand', e.target.value)} />
+                <label className="form-label">Vendor</label>
+                <input type="text" placeholder="e.g. iFixit, AliExpress" value={lotHeader.vendor} onChange={e => setHeader('vendor', e.target.value)} />
               </div>
               <div className="form-group">
                 <label className="form-label">Shipping $</label>
@@ -249,10 +249,6 @@ export default function Parts({ parts, partLots, setSyncing }) {
             </div>
             <div className="form-grid form-grid-2" style={{ marginBottom:14 }}>
               <div className="form-group">
-                <label className="form-label">Vendor</label>
-                <input type="text" placeholder="e.g. iFixit, AliExpress" value={lotHeader.vendor} onChange={e => setHeader('vendor', e.target.value)} />
-              </div>
-              <div className="form-group">
                 <label className="form-label">Notes</label>
                 <input type="text" placeholder="Any notes about this lot" value={lotHeader.notes} onChange={e => setHeader('notes', e.target.value)} />
               </div>
@@ -264,17 +260,20 @@ export default function Parts({ parts, partLots, setSyncing }) {
                 <label className="form-label" style={{ margin:0 }}>Parts in this lot *</label>
                 <button className="btn btn-sm" onClick={addLine}>+ Add part type</button>
               </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 100px 70px 90px 28px', gap:6, marginBottom:4, padding:'0 4px' }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 100px 100px 70px 90px 28px', gap:6, marginBottom:4, padding:'0 4px' }}>
                 <span style={{ fontSize:11, color:'var(--c-text3)' }}>Part name</span>
+                <span style={{ fontSize:11, color:'var(--c-text3)' }}>Brand</span>
                 <span style={{ fontSize:11, color:'var(--c-text3)' }}>Color</span>
                 <span style={{ fontSize:11, color:'var(--c-text3)' }}>Qty</span>
                 <span style={{ fontSize:11, color:'var(--c-text3)' }}>Price ea $</span>
                 <span></span>
               </div>
               {lineItems.map((line, i) => (
-                <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 100px 70px 90px 28px', gap:6, marginBottom:6 }}>
+                <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 100px 100px 70px 90px 28px', gap:6, marginBottom:6 }}>
                   <input type="text" placeholder="e.g. iPhone 12 Screen" value={line.part_name}
                     onChange={e => updateLine(i, 'part_name', e.target.value)} />
+                  <input type="text" placeholder="Apple" value={line.brand||''}
+                    onChange={e => updateLine(i, 'brand', e.target.value)} />
                   <input type="text" placeholder="Black" value={line.color}
                     onChange={e => updateLine(i, 'color', e.target.value)} />
                   <input type="number" placeholder="0" min="1" step="1" value={line.quantity}
