@@ -87,7 +87,7 @@ function normalizeOrderRow(row) {
 export default function Orders({ orders, inventory, setSyncing }) {
   const [form, setForm] = useState({
     sale_date: today(), order_number: '', item_name: '', inventory_id: '',
-    serial_number: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '',
+    serial_number: '', serialSearch: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '',
     ad_fee: '', shipping_cost: '', item_cost: '', notes: ''
   })
   const [adding, setAdding] = useState(false)
@@ -229,7 +229,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
         .eq('serial_number', form.serial_number.trim())
         .neq('status', 'Sold')
     }
-    setForm({ sale_date: today(), order_number: '', item_name: '', inventory_id: '', serial_number: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '', ad_fee: '', shipping_cost: '', item_cost: '', notes: '' })
+    setForm({ sale_date: today(), order_number: '', item_name: '', inventory_id: '', serial_number: '', serialSearch: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '', ad_fee: '', shipping_cost: '', item_cost: '', notes: '' })
     setAdding(false); setSyncing(false)
   }
 
@@ -352,11 +352,31 @@ export default function Orders({ orders, inventory, setSyncing }) {
         <div className="card-title">Log new order</div>
         <div className="form-grid form-grid-2" style={{ marginBottom:10 }}>
           <div className="form-group">
-            <label className="form-label">Link to inventory item (optional)</label>
-            <select value={form.inventory_id} onChange={e => handleInventorySelect(e.target.value)}>
-              <option value="">— Manual entry —</option>
-              {inStockInventory.map(i => <option key={i.id} value={i.id}>{i.name}{i.sku ? ' (' + i.sku + ')' : ''}{i.serial_number ? ' · SN: ' + i.serial_number : ''}</option>)}
-            </select>
+            <label className="form-label">Search inventory by serial # (optional)</label>
+            <input
+              type="text"
+              placeholder="Type serial number to auto-link…"
+              value={form.serialSearch}
+              onChange={e => {
+                const val = e.target.value
+                set('serialSearch', val)
+                const match = inventory.find(i =>
+                  i.serial_number && i.serial_number.trim().toLowerCase() === val.trim().toLowerCase()
+                )
+                if (match) handleInventorySelect(match.id)
+                else handleInventorySelect('')
+              }}
+            />
+            {form.inventory_id && (() => {
+              const linked = inventory.find(i => i.id === form.inventory_id)
+              return linked ? (
+                <div style={{ fontSize:12, color:'var(--c-green)', marginTop:4, display:'flex', alignItems:'center', gap:8 }}>
+                  ✓ Linked: {linked.name}{linked.sku ? ` (${linked.sku})` : ''}
+                  <button style={{ fontSize:11, color:'var(--c-text3)', background:'none', border:'none', cursor:'pointer', padding:0 }}
+                    onClick={() => { handleInventorySelect(''); set('serialSearch', '') }}>clear</button>
+                </div>
+              ) : null
+            })()}
           </div>
           <div className="form-group">
             <label className="form-label">Item name *</label>
