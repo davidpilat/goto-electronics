@@ -55,7 +55,6 @@ export default function Parts({ parts, partLots, setSyncing }) {
 
     const { data: lot } = await supabase.from('part_lots').insert({
       part_name: lotName,
-      brand: lotHeader.brand.trim() || null,
       purchase_date: lotHeader.purchase_date,
       lot_price: partsSubtotal,
       quantity: totalQty,
