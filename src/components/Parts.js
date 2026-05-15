@@ -23,6 +23,8 @@ export default function Parts({ parts, partLots, setSyncing }) {
   const [expandedLots, setExpandedLots] = useState({})
   const [addingToLot, setAddingToLot] = useState(null)
   const [addToLotLine, setAddToLotLine] = useState({ part_name:'', color:'', quantity:'', price:'' })
+  const [editPartId, setEditPartId] = useState(null)
+  const [editPartForm, setEditPartForm] = useState({})
   // Cascading selectors for Use a Part
   const [filterBrand, setFilterBrand] = useState('')
   const [filterColor, setFilterColor] = useState('')
@@ -111,6 +113,22 @@ export default function Parts({ parts, partLots, setSyncing }) {
     if (!window.confirm('Delete this part?')) return
     setSyncing(true)
     await supabase.from('parts').delete().eq('id', id)
+    setSyncing(false)
+  }
+
+  const savePart = async (id) => {
+    setSyncing(true)
+    await supabase.from('parts').update({
+      part_name: editPartForm.part_name,
+      brand: editPartForm.brand || null,
+      color: editPartForm.color || null,
+      cost: parseFloat(editPartForm.cost)||0,
+      status: editPartForm.status,
+      order_number: editPartForm.order_number || null,
+      serial_number: editPartForm.serial_number || null,
+      notes: editPartForm.notes || null,
+    }).eq('id', id)
+    setEditPartId(null)
     setSyncing(false)
   }
 
@@ -416,9 +434,28 @@ export default function Parts({ parts, partLots, setSyncing }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredParts.map(p => (
+                    {filteredParts.map(p => editPartId === p.id ? (
+                      <tr key={p.id} style={{ background:'var(--c-surface2)' }}>
+                        <td colSpan={8}>
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'8px 0', alignItems:'flex-end' }}>
+                            <input style={{ flex:'2 1 140px', height:34 }} type="text" placeholder="Part name" value={editPartForm.part_name||''} onChange={e => setEditPartForm(prev => ({ ...prev, part_name: e.target.value }))} />
+                            <input style={{ flex:'1 1 100px', height:34 }} type="text" placeholder="Brand" value={editPartForm.brand||''} onChange={e => setEditPartForm(prev => ({ ...prev, brand: e.target.value }))} />
+                            <input style={{ flex:'1 1 80px', height:34 }} type="text" placeholder="Color" value={editPartForm.color||''} onChange={e => setEditPartForm(prev => ({ ...prev, color: e.target.value }))} />
+                            <input style={{ flex:'1 1 80px', height:34 }} type="number" placeholder="Cost $" step="0.01" value={editPartForm.cost||''} onChange={e => setEditPartForm(prev => ({ ...prev, cost: e.target.value }))} />
+                            <select style={{ flex:'1 1 100px', height:34 }} value={editPartForm.status||'Available'} onChange={e => setEditPartForm(prev => ({ ...prev, status: e.target.value }))}>
+                              <option>Available</option>
+                              <option>Used</option>
+                            </select>
+                            <input style={{ flex:'1 1 120px', height:34 }} type="text" placeholder="Order #" value={editPartForm.order_number||''} onChange={e => setEditPartForm(prev => ({ ...prev, order_number: e.target.value }))} />
+                            <input style={{ flex:'1 1 130px', height:34 }} type="text" placeholder="Serial #" value={editPartForm.serial_number||''} onChange={e => setEditPartForm(prev => ({ ...prev, serial_number: e.target.value }))} />
+                            <button className="btn btn-primary btn-sm" onClick={() => savePart(p.id)}>Save</button>
+                            <button className="btn btn-sm" onClick={() => setEditPartId(null)}>Cancel</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
                       <tr key={p.id}>
-                        <td style={{ fontWeight:500 }}>{p.part_name}</td>
+                        <td style={{ fontWeight:500 }}>{p.part_name}{p.brand && <span style={{ fontSize:11, color:'var(--c-text3)', marginLeft:4 }}>({p.brand})</span>}</td>
                         <td style={{ fontSize:12, color:'var(--c-text2)' }}>{p.color || '—'}</td>
                         <td className="mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(p.cost)}</td>
                         <td><span className={`badge ${p.status==='Available'?'badge-green':'badge-gray'}`}>{p.status}</span></td>
@@ -429,7 +466,10 @@ export default function Parts({ parts, partLots, setSyncing }) {
                           {p.serial_number || '—'}
                         </td>
                         <td className="hide-mobile" style={{ fontSize:12, color:'var(--c-text3)' }}>{p.purchase_date || '—'}</td>
-                        <td><button className="btn btn-sm btn-danger" onClick={() => deletePart(p.id)}>×</button></td>
+                        <td style={{ display:'flex', gap:4 }}>
+                          <button className="btn btn-sm" onClick={() => { setEditPartId(p.id); setEditPartForm({...p}) }}>Edit</button>
+                          <button className="btn btn-sm btn-danger" onClick={() => deletePart(p.id)}>×</button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
