@@ -152,6 +152,8 @@ export default function Parts({ parts, partLots, setSyncing }) {
     setAddToLotLine({ part_name:'', color:'', quantity:'', price:'' })
     setSyncing(false)
   }
+
+  const availableParts = parts.filter(p => p.status === 'Available')
   const usedParts = parts.filter(p => p.status === 'Used')
   const totalSpent = partLots.reduce((s, l) => s + parseFloat(l.total_cost||0), 0)
   const availableValue = availableParts.reduce((s, p) => s + parseFloat(p.cost||0), 0)
