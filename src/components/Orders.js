@@ -240,6 +240,25 @@ export default function Orders({ orders, inventory, setSyncing }) {
     setSyncing(false)
   }
 
+  const markReturn = async (o) => {
+    if (!window.confirm('Mark this order as returned? Gross sale, selling fees, ad fees, and item cost will be zeroed out. Shipping cost will remain as a loss.')) return
+    setSyncing(true)
+    await supabase.from('orders').update({
+      gross_sale: 0,
+      selling_fee: 0,
+      ad_fee: 0,
+      item_cost: 0,
+      notes: (o.notes ? o.notes + ' ' : '') + '[RETURNED]',
+    }).eq('id', o.id)
+    // Mark inventory back to In Stock if linked by serial number
+    if (o.serial_number) {
+      await supabase.from('inventory').update({ status: 'In Stock' })
+        .eq('serial_number', o.serial_number)
+        .eq('status', 'Sold')
+    }
+    setSyncing(false)
+  }
+
   // Build serial number → SKU lookup from inventory
   const serialToSku = {}
   inventory.forEach(i => {
@@ -557,18 +576,20 @@ export default function Orders({ orders, inventory, setSyncing }) {
                         </tr>
                       )
                     }
+                    const isReturned = o.notes?.includes('[RETURNED]')
                     const fees = parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0)
                     const net = parseFloat(o.gross_sale||0) - fees - parseFloat(o.shipping_cost||0)
                     const profit = net - parseFloat(o.item_cost||0)
                     return (
-                      <tr key={o.id}>
+                      <tr key={o.id} style={ isReturned ? { opacity: 0.6 } : {}}>
                         <td style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>
                           {o.order_number || <span style={{ color:'var(--c-text3)' }}>—</span>}
                         </td>
                         <td style={{ color:'var(--c-text2)', fontSize:12 }}>{o.sale_date}</td>
                         <td style={{ maxWidth:160 }}>
                           <div style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{o.item_name}</div>
-                          {o.notes && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{o.notes}</div>}
+                          {isReturned && <span className="badge badge-red" style={{ fontSize:10 }}>Returned</span>}
+                          {o.notes && !isReturned && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{o.notes}</div>}
                         </td>
                         <td><span className="badge badge-brand">{o.platform}</span></td>
                         <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-brand)' }}>
@@ -589,6 +610,7 @@ export default function Orders({ orders, inventory, setSyncing }) {
                         </td>
                         <td style={{ display:'flex', gap:4 }}>
                           <button className="btn btn-sm" onClick={() => { setEditId(o.id); setEditForm({...o, _sku: serialToSku[o.serial_number] || ''}) }}>Edit</button>
+                          {!isReturned && <button className="btn btn-sm" style={{ color:'var(--c-amber)' }} onClick={() => markReturn(o)}>↩</button>}
                           <button className="btn btn-sm btn-danger" onClick={() => deleteOrder(o.id)}>×</button>
                         </td>
                       </tr>
