@@ -85,7 +85,7 @@ export default function App() {
         {tab === 'Inventory' && <Inventory inventory={inventory} setSyncing={setSyncing} />}
         {tab === 'Parts' && <Parts parts={parts} partLots={partLots} setSyncing={setSyncing} />}
         {tab === 'Expenses' && <BizExpenses expenses={expenses} setSyncing={setSyncing} />}
-        {tab === 'Reports' && <Reports orders={orders} expenses={expenses} inventory={inventory} />}
+        {tab === 'Reports' && <Reports orders={orders} expenses={expenses} inventory={inventory} parts={parts} />}
         {tab === 'Calc' && <ProfitCalc />}
       </main>
     </div>

@@ -5,7 +5,7 @@ const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })
 const fmtK = n => { const v = parseFloat(n)||0; return (v<0?'-':'')+'$'+(Math.abs(v)>=1000?(Math.abs(v)/1000).toFixed(1)+'k':Math.abs(v).toFixed(0)) }
 
-export default function Reports({ orders, expenses, inventory = [] }) {
+export default function Reports({ orders, expenses, inventory = [], parts = [] }) {
   const [year, setYear] = useState(new Date().getFullYear().toString())
   const [skuSearch, setSkuSearch] = useState('')
   const [expandedSkus, setExpandedSkus] = useState({})
@@ -96,7 +96,9 @@ export default function Reports({ orders, expenses, inventory = [] }) {
     orders: acc.orders + m.orders,
   }), { gross:0, net:0, fees:0, itemCost:0, bizExp:0, profit:0, orders:0 })
 
-  const avgMargin = totals.gross > 0 ? (totals.profit/totals.gross*100).toFixed(1) : 0
+  const totalInventoryCost = inventory.reduce((s, i) => s + parseFloat(i.purchase_cost||0), 0)
+  const totalPartsCost = parts.reduce((s, p) => s + parseFloat(p.cost||0), 0)
+  const realizedProfit = totals.profit - totalInventoryCost - totalPartsCost
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null
@@ -144,6 +146,9 @@ export default function Reports({ orders, expenses, inventory = [] }) {
             { label:'− Item costs (COGS)', value:totals.itemCost, color:'var(--c-amber)', sign:'−' },
             { label:'− Business expenses', value:totals.bizExp, color:'var(--c-amber)', sign:'−' },
             { label:'= Total profit', value:totals.profit, color:totals.profit>=0?'var(--c-green)':'var(--c-red)', sign:null, bold:true, borderTop:true },
+            { label:'− Unsold inventory cost', value:totalInventoryCost, color:'var(--c-amber)', sign:'−' },
+            { label:'− Unsold parts cost', value:totalPartsCost, color:'var(--c-amber)', sign:'−' },
+            { label:'= Realized profit', value:realizedProfit, color:realizedProfit>=0?'var(--c-green)':'var(--c-red)', sign:null, bold:true, borderTop:true },
           ].map(row => (
             <div key={row.label} style={{
               display:'flex', justifyContent:'space-between', alignItems:'center',
