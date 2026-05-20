@@ -133,19 +133,31 @@ export default function Reports({ orders, expenses, inventory = [] }) {
         ))}
       </div>
 
-      {/* Cost breakdown */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:'1rem' }}>
-        {[
-          { label:'Platform fees + shipping', value:fmtMoney(totals.fees), pct: totals.gross > 0 ? (totals.fees/totals.gross*100).toFixed(1) : 0 },
-          { label:'Item costs (COGS)', value:fmtMoney(totals.itemCost), pct: totals.gross > 0 ? (totals.itemCost/totals.gross*100).toFixed(1) : 0 },
-          { label:'Business expenses', value:fmtMoney(totals.bizExp), pct: totals.gross > 0 ? (totals.bizExp/totals.gross*100).toFixed(1) : 0 },
-        ].map(m => (
-          <div key={m.label} className="stat-card">
-            <div className="stat-label">{m.label}</div>
-            <div className="stat-value" style={{ fontSize:18 }}>{m.value}</div>
-            <div className="stat-sub">{m.pct}% of gross revenue</div>
-          </div>
-        ))}
+      {/* Profit breakdown */}
+      <div className="card" style={{ marginBottom:'1rem' }}>
+        <div className="card-title">Profit breakdown</div>
+        <div style={{ display:'flex', flexDirection:'column', gap:0, maxWidth:420 }}>
+          {[
+            { label:'Gross revenue', value:totals.gross, color:'var(--c-text)', sign:null },
+            { label:'− Platform fees + shipping', value:totals.fees, color:'var(--c-amber)', sign:'−' },
+            { label:'= Net revenue', value:totals.net, color:'var(--c-text)', sign:null, bold:true, borderTop:true },
+            { label:'− Item costs (COGS)', value:totals.itemCost, color:'var(--c-amber)', sign:'−' },
+            { label:'− Business expenses', value:totals.bizExp, color:'var(--c-amber)', sign:'−' },
+            { label:'= Total profit', value:totals.profit, color:totals.profit>=0?'var(--c-green)':'var(--c-red)', sign:null, bold:true, borderTop:true },
+          ].map(row => (
+            <div key={row.label} style={{
+              display:'flex', justifyContent:'space-between', alignItems:'center',
+              padding:'8px 4px',
+              borderTop: row.borderTop ? '1px solid var(--c-border)' : undefined,
+              marginTop: row.borderTop ? 4 : undefined,
+            }}>
+              <span style={{ fontSize:13, color:'var(--c-text2)', fontWeight: row.bold ? 600 : 400 }}>{row.label}</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", fontSize:14, fontWeight: row.bold ? 700 : 500, color:row.color }}>
+                {fmtMoney(row.value)}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Revenue chart */}
