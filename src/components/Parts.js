@@ -400,81 +400,186 @@ export default function Parts({ parts, partLots, setSyncing }) {
 
       {/* Parts Inventory */}
       {activeTab === 'inventory' && (
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">{filteredParts.length} parts</span>
-            <div style={{ display:'flex', gap:8 }}>
-              <input type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}
-                style={{ height:32, width:140, fontSize:13 }} />
-              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
-                style={{ height:32, width:110, fontSize:12 }}>
-                <option value="">All</option>
-                <option value="Available">Available</option>
-                <option value="Used">Used</option>
-              </select>
+        <div>
+          {/* Grouped summary */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title">Parts breakdown</span>
+              <div style={{ display:'flex', gap:8 }}>
+                <input type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}
+                  style={{ height:32, width:140, fontSize:13 }} />
+                <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+                  style={{ height:32, width:110, fontSize:12 }}>
+                  <option value="">All</option>
+                  <option value="Available">Available</option>
+                  <option value="Used">Used</option>
+                </select>
+              </div>
             </div>
-          </div>
-          {filteredParts.length === 0
-            ? <div className="empty"><div className="empty-icon">🔧</div>No parts yet. Add a lot purchase first.</div>
-            : (
-              <div style={{ overflowX:'auto' }}>
+            {(() => {
+              const groups = {}
+              filteredParts.forEach(p => {
+                const brand = p.brand || 'No Brand'
+                const key = `${brand}|||${p.part_name}`
+                if (!groups[key]) groups[key] = { brand, part_name: p.part_name, colors: {} }
+                const color = p.color || 'No Color'
+                if (!groups[key].colors[color]) groups[key].colors[color] = []
+                groups[key].colors[color].push(p)
+              })
+              const sortedGroups = Object.values(groups).sort((a, b) => {
+                if (a.brand !== b.brand) return a.brand.localeCompare(b.brand)
+                return a.part_name.localeCompare(b.part_name)
+              })
+              if (sortedGroups.length === 0) return (
+                <div className="empty"><div className="empty-icon">🔧</div>No parts yet.</div>
+              )
+              return (
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Part name</th>
+                      <th>Brand / Part</th>
                       <th>Color</th>
-                      <th>Cost</th>
-                      <th>Status</th>
-                      <th className="hide-mobile">Order #</th>
-                      <th className="hide-mobile">Serial #</th>
-                      <th className="hide-mobile">Purchase date</th>
+                      <th>Qty</th>
+                      <th className="hide-mobile">Cost ea</th>
+                      <th className="hide-mobile">Total value</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredParts.map(p => editPartId === p.id ? (
-                      <tr key={p.id} style={{ background:'var(--c-surface2)' }}>
-                        <td colSpan={8}>
-                          <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'8px 0', alignItems:'flex-end' }}>
-                            <input style={{ flex:'2 1 140px', height:34 }} type="text" placeholder="Part name" value={editPartForm.part_name||''} onChange={e => setEditPartForm(prev => ({ ...prev, part_name: e.target.value }))} />
-                            <input style={{ flex:'1 1 100px', height:34 }} type="text" placeholder="Brand" value={editPartForm.brand||''} onChange={e => setEditPartForm(prev => ({ ...prev, brand: e.target.value }))} />
-                            <input style={{ flex:'1 1 80px', height:34 }} type="text" placeholder="Color" value={editPartForm.color||''} onChange={e => setEditPartForm(prev => ({ ...prev, color: e.target.value }))} />
-                            <input style={{ flex:'1 1 80px', height:34 }} type="number" placeholder="Cost $" step="0.01" value={editPartForm.cost||''} onChange={e => setEditPartForm(prev => ({ ...prev, cost: e.target.value }))} />
-                            <select style={{ flex:'1 1 100px', height:34 }} value={editPartForm.status||'Available'} onChange={e => setEditPartForm(prev => ({ ...prev, status: e.target.value }))}>
-                              <option>Available</option>
-                              <option>Used</option>
-                            </select>
-                            <input style={{ flex:'1 1 120px', height:34 }} type="text" placeholder="Order #" value={editPartForm.order_number||''} onChange={e => setEditPartForm(prev => ({ ...prev, order_number: e.target.value }))} />
-                            <input style={{ flex:'1 1 130px', height:34 }} type="text" placeholder="Serial #" value={editPartForm.serial_number||''} onChange={e => setEditPartForm(prev => ({ ...prev, serial_number: e.target.value }))} />
-                            <button className="btn btn-primary btn-sm" onClick={() => savePart(p.id)}>Save</button>
-                            <button className="btn btn-sm" onClick={() => setEditPartId(null)}>Cancel</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr key={p.id}>
-                        <td style={{ fontWeight:500 }}>{p.part_name}{p.brand && <span style={{ fontSize:11, color:'var(--c-text3)', marginLeft:4 }}>({p.brand})</span>}</td>
-                        <td style={{ fontSize:12, color:'var(--c-text2)' }}>{p.color || '—'}</td>
-                        <td className="mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(p.cost)}</td>
-                        <td><span className={`badge ${p.status==='Available'?'badge-green':'badge-gray'}`}>{p.status}</span></td>
-                        <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>
-                          {p.order_number || '—'}
-                        </td>
-                        <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>
-                          {p.serial_number || '—'}
-                        </td>
-                        <td className="hide-mobile" style={{ fontSize:12, color:'var(--c-text3)' }}>{p.purchase_date || '—'}</td>
-                        <td style={{ display:'flex', gap:4 }}>
-                          <button className="btn btn-sm" onClick={() => { setEditPartId(p.id); setEditPartForm({...p}) }}>Edit</button>
-                          <button className="btn btn-sm btn-danger" onClick={() => deletePart(p.id)}>×</button>
-                        </td>
-                      </tr>
-                    ))}
+                    {sortedGroups.map((g, gi) => {
+                      const colorEntries = Object.entries(g.colors).sort(([a],[b]) => a.localeCompare(b))
+                      return colorEntries.map(([color, items], ci) => {
+                        const qty = items.length
+                        const avgCost = items.reduce((s,p) => s+parseFloat(p.cost||0),0) / qty
+                        const totalVal = items.reduce((s,p) => s+parseFloat(p.cost||0),0)
+                        const editKey = `${g.brand}|||${g.part_name}|||${color}`
+                        const isEditing = editPartId === editKey
+                        return (
+                          <tr key={editKey}>
+                            <td>
+                              {ci === 0 && (
+                                <div>
+                                  <div style={{ fontWeight:600, fontSize:13 }}>{g.part_name}</div>
+                                  {g.brand !== 'No Brand' && <div style={{ fontSize:11, color:'var(--c-brand)' }}>{g.brand}</div>}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ fontSize:12, color:'var(--c-text2)' }}>{color !== 'No Color' ? color : '—'}</td>
+                            <td>
+                              {isEditing ? (
+                                <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                                  <input type="number" min="0" step="1"
+                                    value={editPartForm.qty}
+                                    onChange={e => setEditPartForm(prev => ({ ...prev, qty: e.target.value }))}
+                                    style={{ width:60, height:30 }} />
+                                  <button className="btn btn-primary btn-sm" onClick={async () => {
+                                    setSyncing(true)
+                                    const newQty = parseInt(editPartForm.qty)
+                                    const diff = newQty - qty
+                                    if (diff < 0) {
+                                      const toRemove = items.filter(p => p.status === 'Available').slice(0, Math.abs(diff))
+                                      for (const p of toRemove) await supabase.from('parts').delete().eq('id', p.id)
+                                    } else if (diff > 0) {
+                                      const newParts = Array.from({ length: diff }, () => ({
+                                        lot_id: items[0].lot_id,
+                                        part_name: g.part_name,
+                                        brand: g.brand !== 'No Brand' ? g.brand : null,
+                                        color: color !== 'No Color' ? color : null,
+                                        cost: avgCost,
+                                        status: 'Available',
+                                        purchase_date: items[0].purchase_date,
+                                      }))
+                                      await supabase.from('parts').insert(newParts)
+                                    }
+                                    setEditPartId(null)
+                                    setSyncing(false)
+                                  }}>✓</button>
+                                  <button className="btn btn-sm" onClick={() => setEditPartId(null)}>✕</button>
+                                </div>
+                              ) : (
+                                <span style={{ fontWeight:600, color: qty > 0 ? 'var(--c-green)' : 'var(--c-text3)' }}>{qty}</span>
+                              )}
+                            </td>
+                            <td className="hide-mobile mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(avgCost)}</td>
+                            <td className="hide-mobile mono">{fmtMoney(totalVal)}</td>
+                            <td>
+                              {!isEditing && (
+                                <button className="btn btn-sm" onClick={() => { setEditPartId(editKey); setEditPartForm({ qty }) }}>Edit qty</button>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })
+                    })}
                   </tbody>
                 </table>
-              </div>
-            )
-          }
+              )
+            })()}
+          </div>
+
+          {/* Individual parts list */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title">{filteredParts.length} individual parts</span>
+            </div>
+            {filteredParts.length === 0
+              ? <div className="empty"><div className="empty-icon">🔧</div>No parts yet. Add a lot purchase first.</div>
+              : (
+                <div style={{ overflowX:'auto' }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Part name</th>
+                        <th>Color</th>
+                        <th>Cost</th>
+                        <th>Status</th>
+                        <th className="hide-mobile">Order #</th>
+                        <th className="hide-mobile">Serial #</th>
+                        <th className="hide-mobile">Purchase date</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredParts.map(p => editPartId === p.id ? (
+                        <tr key={p.id} style={{ background:'var(--c-surface2)' }}>
+                          <td colSpan={8}>
+                            <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'8px 0', alignItems:'flex-end' }}>
+                              <input style={{ flex:'2 1 140px', height:34 }} type="text" placeholder="Part name" value={editPartForm.part_name||''} onChange={e => setEditPartForm(prev => ({ ...prev, part_name: e.target.value }))} />
+                              <input style={{ flex:'1 1 100px', height:34 }} type="text" placeholder="Brand" value={editPartForm.brand||''} onChange={e => setEditPartForm(prev => ({ ...prev, brand: e.target.value }))} />
+                              <input style={{ flex:'1 1 80px', height:34 }} type="text" placeholder="Color" value={editPartForm.color||''} onChange={e => setEditPartForm(prev => ({ ...prev, color: e.target.value }))} />
+                              <input style={{ flex:'1 1 80px', height:34 }} type="number" placeholder="Cost $" step="0.01" value={editPartForm.cost||''} onChange={e => setEditPartForm(prev => ({ ...prev, cost: e.target.value }))} />
+                              <select style={{ flex:'1 1 100px', height:34 }} value={editPartForm.status||'Available'} onChange={e => setEditPartForm(prev => ({ ...prev, status: e.target.value }))}>
+                                <option>Available</option>
+                                <option>Used</option>
+                              </select>
+                              <input style={{ flex:'1 1 120px', height:34 }} type="text" placeholder="Order #" value={editPartForm.order_number||''} onChange={e => setEditPartForm(prev => ({ ...prev, order_number: e.target.value }))} />
+                              <input style={{ flex:'1 1 130px', height:34 }} type="text" placeholder="Serial #" value={editPartForm.serial_number||''} onChange={e => setEditPartForm(prev => ({ ...prev, serial_number: e.target.value }))} />
+                              <button className="btn btn-primary btn-sm" onClick={() => savePart(p.id)}>Save</button>
+                              <button className="btn btn-sm" onClick={() => setEditPartId(null)}>Cancel</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr key={p.id}>
+                          <td style={{ fontWeight:500 }}>{p.part_name}{p.brand && <span style={{ fontSize:11, color:'var(--c-text3)', marginLeft:4 }}>({p.brand})</span>}</td>
+                          <td style={{ fontSize:12, color:'var(--c-text2)' }}>{p.color || '—'}</td>
+                          <td className="mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(p.cost)}</td>
+                          <td><span className={`badge ${p.status==='Available'?'badge-green':'badge-gray'}`}>{p.status}</span></td>
+                          <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>{p.order_number || '—'}</td>
+                          <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>{p.serial_number || '—'}</td>
+                          <td className="hide-mobile" style={{ fontSize:12, color:'var(--c-text3)' }}>{p.purchase_date || '—'}</td>
+                          <td style={{ display:'flex', gap:4 }}>
+                            <button className="btn btn-sm" onClick={() => { setEditPartId(p.id); setEditPartForm({...p}) }}>Edit</button>
+                            <button className="btn btn-sm btn-danger" onClick={() => deletePart(p.id)}>×</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            }
+          </div>
         </div>
       )}
 
