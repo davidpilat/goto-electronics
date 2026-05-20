@@ -97,8 +97,7 @@ export default function Reports({ orders, expenses, inventory = [], parts = [] }
   }), { gross:0, net:0, fees:0, itemCost:0, bizExp:0, profit:0, orders:0 })
 
   const totalInventoryCost = inventory.reduce((s, i) => s + parseFloat(i.purchase_cost||0), 0)
-  const totalPartsCost = parts.reduce((s, p) => s + parseFloat(p.cost||0), 0)
-  const realizedProfit = totals.profit - totalInventoryCost - totalPartsCost
+  const realizedProfit = totals.gross - totals.fees - totals.bizExp - totalInventoryCost
 
   const avgMargin = totals.gross > 0 ? (totals.profit/totals.gross*100).toFixed(1) : 0
 
@@ -148,8 +147,7 @@ export default function Reports({ orders, expenses, inventory = [], parts = [] }
             { label:'− Item costs (COGS)', value:totals.itemCost, color:'var(--c-amber)', sign:'−' },
             { label:'− Business expenses', value:totals.bizExp, color:'var(--c-amber)', sign:'−' },
             { label:'= Total profit', value:totals.profit, color:totals.profit>=0?'var(--c-green)':'var(--c-red)', sign:null, bold:true, borderTop:true },
-            { label:'− Unsold inventory cost', value:totalInventoryCost, color:'var(--c-amber)', sign:'−' },
-            { label:'− Unsold parts cost', value:totalPartsCost, color:'var(--c-amber)', sign:'−' },
+            { label:'− Total inventory purchased', value:totalInventoryCost, color:'var(--c-amber)', sign:'−' },
             { label:'= Realized profit', value:realizedProfit, color:realizedProfit>=0?'var(--c-green)':'var(--c-red)', sign:null, bold:true, borderTop:true },
           ].map(row => (
             <div key={row.label} style={{
