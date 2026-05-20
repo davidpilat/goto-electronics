@@ -100,6 +100,8 @@ export default function Reports({ orders, expenses, inventory = [], parts = [] }
   const totalPartsCost = parts.reduce((s, p) => s + parseFloat(p.cost||0), 0)
   const realizedProfit = totals.profit - totalInventoryCost - totalPartsCost
 
+  const avgMargin = totals.gross > 0 ? (totals.profit/totals.gross*100).toFixed(1) : 0
+
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null
     return (
