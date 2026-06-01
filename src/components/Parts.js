@@ -433,86 +433,109 @@ export default function Parts({ parts, partLots, setSyncing }) {
               if (sortedGroups.length === 0) return (
                 <div className="empty"><div className="empty-icon">🔧</div>No parts yet.</div>
               )
+              // Group by brand for section headers
+              const byBrand = {}
+              sortedGroups.forEach(g => {
+                if (!byBrand[g.brand]) byBrand[g.brand] = []
+                byBrand[g.brand].push(g)
+              })
               return (
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Brand / Part</th>
-                      <th>Color</th>
-                      <th>Qty</th>
-                      <th className="hide-mobile">Cost ea</th>
-                      <th className="hide-mobile">Total value</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedGroups.map((g, gi) => {
-                      const colorEntries = Object.entries(g.colors).sort(([a],[b]) => a.localeCompare(b))
-                      return colorEntries.map(([color, items], ci) => {
-                        const qty = items.length
-                        const avgCost = items.reduce((s,p) => s+parseFloat(p.cost||0),0) / qty
-                        const totalVal = items.reduce((s,p) => s+parseFloat(p.cost||0),0)
-                        const editKey = `${g.brand}|||${g.part_name}|||${color}`
-                        const isEditing = editPartId === editKey
+                <div>
+                  {Object.entries(byBrand).map(([brand, brandGroups]) => (
+                    <div key={brand} style={{ marginBottom: 20 }}>
+                      {/* Brand header */}
+                      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                        <div style={{ fontSize:11, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--c-brand)', padding:'2px 8px', background:'var(--c-brand-bg)', borderRadius:4 }}>
+                          {brand !== 'No Brand' ? brand : 'Other'}
+                        </div>
+                        <div style={{ flex:1, height:1, background:'var(--c-border)' }} />
+                      </div>
+                      {/* Part cards */}
+                      {brandGroups.map(g => {
+                        const colorEntries = Object.entries(g.colors).sort(([a],[b]) => a.localeCompare(b))
+                        const totalQtyForPart = colorEntries.reduce((s,[,items]) => s + items.length, 0)
                         return (
-                          <tr key={editKey}>
-                            <td>
-                              {ci === 0 && (
-                                <div>
-                                  <div style={{ fontWeight:600, fontSize:13 }}>{g.part_name}</div>
-                                  {g.brand !== 'No Brand' && <div style={{ fontSize:11, color:'var(--c-brand)' }}>{g.brand}</div>}
-                                </div>
-                              )}
-                            </td>
-                            <td style={{ fontSize:12, color:'var(--c-text2)' }}>{color !== 'No Color' ? color : '—'}</td>
-                            <td>
-                              {isEditing ? (
-                                <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                                  <input type="number" min="0" step="1"
-                                    value={editPartForm.qty}
-                                    onChange={e => setEditPartForm(prev => ({ ...prev, qty: e.target.value }))}
-                                    style={{ width:60, height:30 }} />
-                                  <button className="btn btn-primary btn-sm" onClick={async () => {
-                                    setSyncing(true)
-                                    const newQty = parseInt(editPartForm.qty)
-                                    const diff = newQty - qty
-                                    if (diff < 0) {
-                                      const toRemove = items.filter(p => p.status === 'Available').slice(0, Math.abs(diff))
-                                      for (const p of toRemove) await supabase.from('parts').delete().eq('id', p.id)
-                                    } else if (diff > 0) {
-                                      const newParts = Array.from({ length: diff }, () => ({
-                                        lot_id: items[0].lot_id,
-                                        part_name: g.part_name,
-                                        brand: g.brand !== 'No Brand' ? g.brand : null,
-                                        color: color !== 'No Color' ? color : null,
-                                        cost: avgCost,
-                                        status: 'Available',
-                                        purchase_date: items[0].purchase_date,
-                                      }))
-                                      await supabase.from('parts').insert(newParts)
-                                    }
-                                    setEditPartId(null)
-                                    setSyncing(false)
-                                  }}>✓</button>
-                                  <button className="btn btn-sm" onClick={() => setEditPartId(null)}>✕</button>
-                                </div>
-                              ) : (
-                                <span style={{ fontWeight:600, color: qty > 0 ? 'var(--c-green)' : 'var(--c-text3)' }}>{qty}</span>
-                              )}
-                            </td>
-                            <td className="hide-mobile mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(avgCost)}</td>
-                            <td className="hide-mobile mono">{fmtMoney(totalVal)}</td>
-                            <td>
-                              {!isEditing && (
-                                <button className="btn btn-sm" onClick={() => { setEditPartId(editKey); setEditPartForm({ qty }) }}>Edit qty</button>
-                              )}
-                            </td>
-                          </tr>
+                          <div key={`${brand}|||${g.part_name}`} style={{ background:'var(--c-surface)', border:'1px solid var(--c-border)', borderRadius:10, marginBottom:10, overflow:'hidden' }}>
+                            {/* Part name header */}
+                            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 14px', background:'var(--c-surface2)', borderBottom:'1px solid var(--c-border)' }}>
+                              <span style={{ fontWeight:600, fontSize:14 }}>{g.part_name}</span>
+                              <span style={{ fontSize:12, color:'var(--c-text3)' }}>{totalQtyForPart} total in stock</span>
+                            </div>
+                            {/* Color swatches */}
+                            <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'12px 14px' }}>
+                              {colorEntries.map(([color, items]) => {
+                                const qty = items.length
+                                const avgCost = items.reduce((s,p) => s+parseFloat(p.cost||0),0) / qty
+                                const editKey = `${brand}|||${g.part_name}|||${color}`
+                                const isEditing = editPartId === editKey
+                                const stockColor = qty === 0 ? 'var(--c-text3)' : qty <= 2 ? 'var(--c-amber)' : 'var(--c-green)'
+                                return (
+                                  <div key={editKey} style={{
+                                    display:'flex', flexDirection:'column', gap:4,
+                                    padding:'10px 14px', borderRadius:8,
+                                    background:'var(--c-surface2)',
+                                    border: `1px solid ${qty <= 2 && qty > 0 ? 'var(--c-amber)' : 'var(--c-border)'}`,
+                                    minWidth:120, flex:'0 0 auto'
+                                  }}>
+                                    <div style={{ fontSize:12, color:'var(--c-text2)', fontWeight:500 }}>
+                                      {color !== 'No Color' ? color : '—'}
+                                    </div>
+                                    {isEditing ? (
+                                      <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                                        <input type="number" min="0" step="1"
+                                          value={editPartForm.qty}
+                                          onChange={e => setEditPartForm(prev => ({ ...prev, qty: e.target.value }))}
+                                          style={{ width:52, height:28, fontSize:13 }} />
+                                        <button className="btn btn-primary btn-sm" onClick={async () => {
+                                          setSyncing(true)
+                                          const newQty = parseInt(editPartForm.qty)
+                                          const diff = newQty - qty
+                                          if (diff < 0) {
+                                            const toRemove = items.filter(p => p.status === 'Available').slice(0, Math.abs(diff))
+                                            for (const p of toRemove) await supabase.from('parts').delete().eq('id', p.id)
+                                          } else if (diff > 0) {
+                                            const newParts = Array.from({ length: diff }, () => ({
+                                              lot_id: items[0].lot_id,
+                                              part_name: g.part_name,
+                                              brand: brand !== 'No Brand' ? brand : null,
+                                              color: color !== 'No Color' ? color : null,
+                                              cost: avgCost,
+                                              status: 'Available',
+                                              purchase_date: items[0].purchase_date,
+                                            }))
+                                            await supabase.from('parts').insert(newParts)
+                                          }
+                                          setEditPartId(null)
+                                          setSyncing(false)
+                                        }}>✓</button>
+                                        <button className="btn btn-sm" onClick={() => setEditPartId(null)}>✕</button>
+                                      </div>
+                                    ) : (
+                                      <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+                                        <span style={{ fontSize:22, fontWeight:700, color: stockColor, lineHeight:1 }}>{qty}</span>
+                                        <span style={{ fontSize:11, color:'var(--c-text3)' }}>in stock</span>
+                                      </div>
+                                    )}
+                                    <div style={{ fontSize:11, color:'var(--c-text3)' }}>{fmtMoney(avgCost)} ea</div>
+                                    {qty <= 2 && qty > 0 && (
+                                      <div style={{ fontSize:10, color:'var(--c-amber)', fontWeight:600 }}>⚠ Low stock</div>
+                                    )}
+                                    {!isEditing && (
+                                      <button className="btn btn-sm" style={{ marginTop:2, fontSize:11 }}
+                                        onClick={() => { setEditPartId(editKey); setEditPartForm({ qty }) }}>
+                                        Edit qty
+                                      </button>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
                         )
-                      })
-                    })}
-                  </tbody>
-                </table>
+                      })}
+                    </div>
+                  ))}
+                </div>
               )
             })()}
           </div>

@@ -84,13 +84,14 @@ function normalizeOrderRow(row) {
   }
 }
 
-export default function Orders({ orders, inventory, setSyncing }) {
+export default function Orders({ orders, inventory, parts = [], setSyncing }) {
   const [form, setForm] = useState({
     sale_date: today(), order_number: '', item_name: '', inventory_id: '',
     serial_number: '', serialSearch: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '',
     ad_fee: '', shipping_cost: '', item_cost: '', notes: ''
   })
   const [adding, setAdding] = useState(false)
+  const [partsUsed, setPartsUsed] = useState([{ part_id: '', qty: 1 }])
   const [search, setSearch] = useState('')
   const [filterPlatform, setFilterPlatform] = useState('')
   const [filterSku, setFilterSku] = useState('')
@@ -207,9 +208,10 @@ export default function Orders({ orders, inventory, setSyncing }) {
   const submit = async () => {
     if (!form.item_name.trim() || !form.gross_sale) return
     setAdding(true); setSyncing(true)
+    const orderNum = form.order_number.trim() || null
     await supabase.from('orders').insert({
       sale_date: form.sale_date,
-      order_number: form.order_number.trim() || null,
+      order_number: orderNum,
       item_name: form.item_name.trim(),
       inventory_id: form.inventory_id || null,
       serial_number: form.serial_number.trim() || null,
@@ -229,7 +231,25 @@ export default function Orders({ orders, inventory, setSyncing }) {
         .eq('serial_number', form.serial_number.trim())
         .neq('status', 'Sold')
     }
+    // Mark parts as used
+    const validPartLines = partsUsed.filter(l => l.part_id)
+    for (const line of validPartLines) {
+      // Find available parts of this type and mark qty of them as used
+      const availableOfType = parts.filter(p => p.id === line.part_id || (
+        parts.find(pp => pp.id === line.part_id)?.part_name === p.part_name &&
+        parts.find(pp => pp.id === line.part_id)?.color === p.color &&
+        parts.find(pp => pp.id === line.part_id)?.brand === p.brand &&
+        p.status === 'Available'
+      )).filter(p => p.status === 'Available').slice(0, line.qty)
+      for (const p of availableOfType) {
+        await supabase.from('parts').update({
+          status: 'Used',
+          order_number: orderNum,
+        }).eq('id', p.id)
+      }
+    }
     setForm({ sale_date: today(), order_number: '', item_name: '', inventory_id: '', serial_number: '', serialSearch: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '', ad_fee: '', shipping_cost: '', item_cost: '', notes: '' })
+    setPartsUsed([{ part_id: '', qty: 1 }])
     setAdding(false); setSyncing(false)
   }
 
@@ -461,6 +481,45 @@ export default function Orders({ orders, inventory, setSyncing }) {
             {parseFloat(form.gross_sale) > 0 && <span>Margin: <strong>{((profit / parseFloat(form.gross_sale)) * 100).toFixed(1)}%</strong></span>}
           </div>
         )}
+        {/* Parts used on this order */}
+        {parts.filter(p => p.status === 'Available').length > 0 && (() => {
+          const availableParts = parts.filter(p => p.status === 'Available')
+          // Build unique part options: brand + part_name + color
+          const partOptions = []
+          const seen = new Set()
+          availableParts.forEach(p => {
+            const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
+            if (!seen.has(key)) {
+              seen.add(key)
+              const qty = availableParts.filter(pp =>
+                pp.part_name === p.part_name && pp.brand === p.brand && pp.color === p.color
+              ).length
+              partOptions.push({ id: p.id, label: `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''} (${qty} avail · ${fmtMoney(p.cost)} ea)`, qty })
+            }
+          })
+          return (
+            <div style={{ marginBottom:12 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+                <label className="form-label" style={{ margin:0 }}>Parts used (optional)</label>
+                <button className="btn btn-sm" onClick={() => setPartsUsed(prev => [...prev, { part_id: '', qty: 1 }])}>+ Add part</button>
+              </div>
+              {partsUsed.map((line, i) => (
+                <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 70px 28px', gap:6, marginBottom:6 }}>
+                  <select value={line.part_id} onChange={e => setPartsUsed(prev => prev.map((l,idx) => idx===i ? {...l, part_id: e.target.value} : l))}>
+                    <option value="">— Select a part —</option>
+                    {partOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                  </select>
+                  <input type="number" min="1" step="1" placeholder="Qty" value={line.qty}
+                    onChange={e => setPartsUsed(prev => prev.map((l,idx) => idx===i ? {...l, qty: parseInt(e.target.value)||1} : l))}
+                    style={{ height:36 }} />
+                  <button className="btn btn-sm btn-danger" style={{ padding:'0 8px' }}
+                    disabled={partsUsed.length === 1}
+                    onClick={() => setPartsUsed(prev => prev.filter((_,idx) => idx !== i))}>×</button>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
         <button className="btn btn-primary" onClick={submit} disabled={adding}>{adding ? 'Saving…' : 'Save order'}</button>
       </div>
 
