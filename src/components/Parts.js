@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 const today = () => new Date().toISOString().slice(0, 10)
 const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })
 
-export default function Parts({ parts, partLots, setSyncing }) {
+export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
   const [activeTab, setActiveTab] = useState('inventory')
 
   // Lot header form
@@ -16,7 +16,8 @@ export default function Parts({ parts, partLots, setSyncing }) {
     { part_name: '', brand: '', color: '', quantity: '', price: '' }
   ])
   const [addingLot, setAddingLot] = useState(false)
-  const [useForm, setUseForm] = useState({ part_id: '', order_number: '', serial_number: '', notes: '' })
+  const [useForm, setUseForm] = useState({ serial_number: '', notes: '' })
+  const [useLines, setUseLines] = useState([{ part_id: '', qty: 1 }])
   const [usingPart, setUsingPart] = useState(false)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('Available')
@@ -96,15 +97,39 @@ export default function Parts({ parts, partLots, setSyncing }) {
   }
 
   const usePart = async () => {
-    if (!useForm.part_id || !useForm.order_number.trim()) return
+    const sn = useForm.serial_number.trim()
+    const validLines = useLines.filter(l => l.part_id)
+    if (!sn || validLines.length === 0) return
     setUsingPart(true); setSyncing(true)
-    await supabase.from('parts').update({
-      status: 'Used',
-      order_number: useForm.order_number.trim(),
-      serial_number: useForm.serial_number.trim() || null,
-      notes: useForm.notes.trim() || null,
-    }).eq('id', useForm.part_id)
-    setUseForm({ part_id:'', order_number:'', serial_number:'', notes:'' })
+
+    // Find the inventory item by serial number
+    const invItem = inventory.find(i => i.serial_number?.trim().toLowerCase() === sn.toLowerCase())
+
+    for (const line of validLines) {
+      // Find the template part to match brand/name/color
+      const template = parts.find(p => p.id === line.part_id)
+      if (!template) continue
+      // Get available parts matching brand+name+color, take qty of them
+      const toUse = parts
+        .filter(p =>
+          p.status === 'Available' &&
+          p.part_name === template.part_name &&
+          p.brand === template.brand &&
+          p.color === template.color
+        )
+        .slice(0, line.qty)
+      for (const p of toUse) {
+        await supabase.from('parts').update({
+          status: 'Used',
+          serial_number: sn,
+          order_number: invItem?.sku || null,
+          notes: useForm.notes.trim() || null,
+        }).eq('id', p.id)
+      }
+    }
+
+    setUseForm({ serial_number: '', notes: '' })
+    setUseLines([{ part_id: '', qty: 1 }])
     setUsingPart(false); setSyncing(false)
   }
 
@@ -609,87 +634,86 @@ export default function Parts({ parts, partLots, setSyncing }) {
       {/* Use a Part */}
       {activeTab === 'use' && (
         <div className="card">
-          <div className="card-title">Use a part on an order</div>
+          <div className="card-title">Use parts on a repair</div>
           {availableParts.length === 0
             ? <div className="empty"><div className="empty-icon">🔧</div>No available parts.</div>
             : (() => {
-                // Build cascading options from available parts
-                const brands = [...new Set(availableParts.map(p => p.brand).filter(Boolean))].sort()
-                const hasBrands = brands.length > 0
+                const sn = useForm.serial_number.trim()
+                const linkedItem = sn ? inventory.find(i => i.serial_number?.trim().toLowerCase() === sn.toLowerCase()) : null
 
-                const partsAfterBrand = filterBrand
-                  ? availableParts.filter(p => p.brand === filterBrand)
-                  : availableParts
-
-                const colors = [...new Set(partsAfterBrand.map(p => p.color).filter(Boolean))].sort()
-
-                const partsAfterColor = filterColor
-                  ? partsAfterBrand.filter(p => p.color === filterColor)
-                  : partsAfterBrand
-
-                // Group final filtered parts by name
-                const partGroups = {}
-                partsAfterColor.forEach(p => {
-                  const key = p.part_name
-                  if (!partGroups[key]) partGroups[key] = []
-                  partGroups[key].push(p)
+                // Build unique part options grouped by brand+name+color
+                const partOptions = []
+                const seen = new Set()
+                availableParts.forEach(p => {
+                  const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
+                  if (!seen.has(key)) {
+                    seen.add(key)
+                    const qty = availableParts.filter(pp =>
+                      pp.part_name === p.part_name && pp.brand === p.brand && pp.color === p.color
+                    ).length
+                    partOptions.push({
+                      id: p.id,
+                      label: `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''} (${qty} avail · ${fmtMoney(p.cost)} ea)`,
+                      qty
+                    })
+                  }
                 })
 
+                const canSubmit = sn && useLines.some(l => l.part_id)
+
                 return (
-                  <div style={{ display:'flex', flexDirection:'column', gap:10, maxWidth:520 }}>
-                    {/* Step 1: Brand */}
-                    {hasBrands && (
-                      <div className="form-group">
-                        <label className="form-label">1. Brand</label>
-                        <select value={filterBrand} onChange={e => { setFilterBrand(e.target.value); setFilterColor(''); setUse('part_id', '') }}>
-                          <option value="">— All brands —</option>
-                          {brands.map(b => (
-                            <option key={b} value={b}>{b} ({availableParts.filter(p => p.brand === b).length} parts)</option>
-                          ))}
-                        </select>
+                  <div style={{ display:'flex', flexDirection:'column', gap:12, maxWidth:560 }}>
+
+                    {/* Step 1: Serial number */}
+                    <div className="form-group">
+                      <label className="form-label">1. Headphone serial number *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. DNPXC2XY0J4D"
+                        value={useForm.serial_number}
+                        onChange={e => setUse('serial_number', e.target.value)}
+                      />
+                      {sn && (
+                        linkedItem
+                          ? <div style={{ fontSize:12, color:'var(--c-green)', marginTop:4 }}>
+                              ✓ Linked: {linkedItem.name}{linkedItem.sku ? ` · ${linkedItem.sku}` : ''}{linkedItem.color ? ` · ${linkedItem.color}` : ''}
+                            </div>
+                          : <div style={{ fontSize:12, color:'var(--c-text3)', marginTop:4 }}>
+                              Serial not found in inventory — parts will still be marked used with this serial number.
+                            </div>
+                      )}
+                    </div>
+
+                    {/* Step 2: Parts used */}
+                    <div>
+                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+                        <label className="form-label" style={{ margin:0 }}>2. Parts used *</label>
+                        <button className="btn btn-sm" onClick={() => setUseLines(prev => [...prev, { part_id: '', qty: 1 }])}>+ Add part</button>
                       </div>
-                    )}
-
-                    {/* Step 2: Color */}
-                    {colors.length > 0 && (
-                      <div className="form-group">
-                        <label className="form-label">{hasBrands ? '2.' : '1.'} Color</label>
-                        <select value={filterColor} onChange={e => { setFilterColor(e.target.value); setUse('part_id', '') }}>
-                          <option value="">— All colors —</option>
-                          {colors.map(c => (
-                            <option key={c} value={c}>{c} ({partsAfterBrand.filter(p => p.color === c).length} parts)</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* Step 3: Part */}
-                    <div className="form-group">
-                      <label className="form-label">{hasBrands ? '3.' : colors.length > 0 ? '2.' : '1.'} Select part *</label>
-                      <select value={useForm.part_id} onChange={e => setUse('part_id', e.target.value)}>
-                        <option value="">— Choose a part —</option>
-                        {Object.entries(partGroups).map(([name, items]) => (
-                          <option key={items[0].id} value={items[0].id}>
-                            {name} · {items.length} available · {fmtMoney(items[0].cost)} ea
-                          </option>
-                        ))}
-                      </select>
+                      {useLines.map((line, i) => (
+                        <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 70px 28px', gap:6, marginBottom:6 }}>
+                          <select value={line.part_id} onChange={e => setUseLines(prev => prev.map((l,idx) => idx===i ? {...l, part_id: e.target.value} : l))}>
+                            <option value="">— Select a part —</option>
+                            {partOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                          </select>
+                          <input type="number" min="1" step="1" placeholder="Qty" value={line.qty}
+                            onChange={e => setUseLines(prev => prev.map((l,idx) => idx===i ? {...l, qty: parseInt(e.target.value)||1} : l))}
+                            style={{ height:36 }} />
+                          <button className="btn btn-sm btn-danger" style={{ padding:'0 8px' }}
+                            disabled={useLines.length === 1}
+                            onClick={() => setUseLines(prev => prev.filter((_,idx) => idx !== i))}>×</button>
+                        </div>
+                      ))}
                     </div>
 
+                    {/* Step 3: Notes */}
                     <div className="form-group">
-                      <label className="form-label">Order number *</label>
-                      <input type="text" placeholder="e.g. 12-34567-89012" value={useForm.order_number} onChange={e => setUse('order_number', e.target.value)} />
+                      <label className="form-label">3. Notes (optional)</label>
+                      <input type="text" placeholder="e.g. Headband replacement, earcup swap" value={useForm.notes} onChange={e => setUse('notes', e.target.value)} />
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Item serial number (optional)</label>
-                      <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={useForm.serial_number} onChange={e => setUse('serial_number', e.target.value)} />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Notes (optional)</label>
-                      <input type="text" placeholder="e.g. Screen replacement" value={useForm.notes} onChange={e => setUse('notes', e.target.value)} />
-                    </div>
-                    <button className="btn btn-primary" style={{ alignSelf:'flex-start' }} onClick={usePart} disabled={usingPart}>
-                      {usingPart ? 'Saving…' : 'Mark part as used'}
+
+                    <button className="btn btn-primary" style={{ alignSelf:'flex-start' }} onClick={usePart} disabled={usingPart || !canSubmit}>
+                      {usingPart ? 'Saving…' : `Mark ${useLines.filter(l=>l.part_id).length > 1 ? useLines.filter(l=>l.part_id).length + ' parts' : 'part'} as used`}
                     </button>
                   </div>
                 )
