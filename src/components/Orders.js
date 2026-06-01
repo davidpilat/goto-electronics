@@ -639,6 +639,18 @@ export default function Orders({ orders, inventory, parts = [], setSyncing }) {
                     const fees = parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0)
                     const net = parseFloat(o.gross_sale||0) - fees - parseFloat(o.shipping_cost||0)
                     const profit = net - parseFloat(o.item_cost||0)
+
+                    // Find parts used on this order via serial number
+                    const usedParts = o.serial_number
+                      ? parts.filter(p => p.status === 'Used' && p.serial_number?.trim().toLowerCase() === o.serial_number.trim().toLowerCase())
+                      : []
+                    // Group by part_name + color for compact display
+                    const partSummary = {}
+                    usedParts.forEach(p => {
+                      const key = `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''}`
+                      partSummary[key] = (partSummary[key] || 0) + 1
+                    })
+                    const partEntries = Object.entries(partSummary)
                     return (
                       <tr key={o.id} style={ isReturned ? { opacity: 0.6 } : {}}>
                         <td style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>
@@ -649,6 +661,19 @@ export default function Orders({ orders, inventory, parts = [], setSyncing }) {
                           <div style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{o.item_name}</div>
                           {isReturned && <span className="badge badge-red" style={{ fontSize:10 }}>Returned</span>}
                           {o.notes && !isReturned && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{o.notes}</div>}
+                          {partEntries.length > 0 && (
+                            <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginTop:4 }}>
+                              {partEntries.map(([name, qty]) => (
+                                <span key={name} style={{
+                                  fontSize:10, padding:'1px 6px', borderRadius:4,
+                                  background:'var(--c-surface2)', color:'var(--c-text2)',
+                                  border:'1px solid var(--c-border)', whiteSpace:'nowrap'
+                                }}>
+                                  🔧 {qty > 1 ? `${qty}× ` : ''}{name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td><span className="badge badge-brand">{o.platform}</span></td>
                         <td className="hide-mobile" style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-brand)' }}>
