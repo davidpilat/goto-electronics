@@ -6,40 +6,6 @@ const STATUSES = ['In Stock','Listed','Sold','Scrapped']
 const today = () => new Date().toISOString().slice(0, 10)
 const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })
 
-// Repair templates: map SKU or name keywords to required parts
-// Each entry: { match: string (checked against name/sku, case-insensitive), parts: [{ part_name, brand, color, qty }] }
-const REPAIR_TEMPLATES = [
-  {
-    match: 'studio 3',
-    label: 'Beats Studio 3',
-    parts: [
-      { brand:'Beats', part_name:'Studio 3 Headband', color:null, qty:1 },
-      { brand:'Beats', part_name:'Studio 3 Earpads', color:null, qty:2 },
-    ]
-  },
-  {
-    match: 'studio 4',
-    label: 'Beats Studio 4',
-    parts: [
-      { brand:'Beats', part_name:'Solo 4 Headband', color:null, qty:1 },
-      { brand:'Beats', part_name:'Solo 4 Earpads', color:null, qty:2 },
-    ]
-  },
-  {
-    match: 'solo 3',
-    label: 'Beats Solo 3',
-    parts: [
-      { brand:'Beats', part_name:'Solo 3 Headband', color:null, qty:1 },
-      { brand:'Beats', part_name:'Solo 3 Earpads', color:null, qty:2 },
-    ]
-  },
-]
-
-function getTemplate(item) {
-  const haystack = ((item.name || '') + ' ' + (item.sku || '')).toLowerCase()
-  return REPAIR_TEMPLATES.find(t => haystack.includes(t.match.toLowerCase())) || null
-}
-
 const COL_MAP = {
   name: ['name','item','item name','title','product','description','device'],
   sku: ['sku','sku/id','product id','sku id','item id'],
@@ -108,7 +74,7 @@ function normalizeRow(row) {
   }
 }
 
-export default function Inventory({ inventory, parts = [], setSyncing }) {
+export default function Inventory({ inventory, parts = [], repairReqs = [], setSyncing }) {
   const [form, setForm] = useState({
     name: '', sku: '', serial_number: '', condition: 'Good',
     purchase_cost: '', status: 'In Stock', purchase_date: today(), notes: ''
@@ -120,6 +86,7 @@ export default function Inventory({ inventory, parts = [], setSyncing }) {
   const [editForm, setEditForm] = useState({})
   const [expandedGroups, setExpandedGroups] = useState({})
   const [expandedParts, setExpandedParts] = useState({})
+  const [reqForm, setReqForm] = useState({}) // { [inventoryId]: { part_id: '', qty: 1 } }
   const [importing, setImporting] = useState(false)
   const [importPreview, setImportPreview] = useState(null)
   const [importError, setImportError] = useState('')
@@ -374,28 +341,24 @@ export default function Inventory({ inventory, parts = [], setSyncing }) {
       {(() => {
         const activeItems = inventory.filter(i => i.status === 'In Stock' || i.status === 'Listed')
 
-        // Step 1: accumulate total demand per part key across all active inventory
+        // Build demand map from repair_requirements for active inventory only
         const demandMap = {}
         activeItems.forEach(item => {
-          const template = getTemplate(item)
-          if (!template) return
-          const itemColor = item.color || null
-          template.parts.forEach(req => {
-            const matchColor = req.color || itemColor
-            const key = `${req.brand||''}|||${req.part_name}|||${matchColor||''}`
-            const label = `${req.brand ? req.brand + ' ' : ''}${req.part_name}${matchColor ? ' — ' + matchColor : ''}`
-            if (!demandMap[key]) demandMap[key] = { label, req, matchColor, totalNeeded: 0 }
+          const reqs = repairReqs.filter(r => r.inventory_id === item.id)
+          reqs.forEach(req => {
+            const key = `${req.brand||''}|||${req.part_name}|||${req.color||''}`
+            const label = `${req.brand ? req.brand + ' ' : ''}${req.part_name}${req.color ? ' — ' + req.color : ''}`
+            if (!demandMap[key]) demandMap[key] = { label, req, totalNeeded: 0 }
             demandMap[key].totalNeeded += req.qty
           })
         })
 
-        // Step 2: compare total demand against available stock once per part type
-        const shortfalls = Object.values(demandMap).map(({ label, req, matchColor, totalNeeded }) => {
+        const shortfalls = Object.values(demandMap).map(({ label, req, totalNeeded }) => {
           const avail = parts.filter(p =>
             p.status === 'Available' &&
             p.part_name === req.part_name &&
-            p.brand === req.brand &&
-            (!matchColor || p.color?.toLowerCase() === matchColor?.toLowerCase())
+            (req.brand ? p.brand === req.brand : true) &&
+            (req.color ? p.color?.toLowerCase() === req.color.toLowerCase() : true)
           ).length
           const short = Math.max(0, totalNeeded - avail)
           return { label, totalNeeded, avail, short }
@@ -406,7 +369,7 @@ export default function Inventory({ inventory, parts = [], setSyncing }) {
           <div className="card" style={{ borderLeft:'3px solid var(--c-amber)', marginBottom:'1rem' }}>
             <div className="card-header" style={{ marginBottom:8 }}>
               <span className="card-title" style={{ color:'var(--c-amber)' }}>⚠ Parts to Order ({shortfalls.length})</span>
-              <span style={{ fontSize:12, color:'var(--c-text3)' }}>Based on in-stock & listed inventory needing repair</span>
+              <span style={{ fontSize:12, color:'var(--c-text3)' }}>Based on in-stock & listed inventory repair requirements</span>
             </div>
             <table className="data-table">
               <thead>
@@ -538,64 +501,115 @@ export default function Inventory({ inventory, parts = [], setSyncing }) {
                                 </td>
                               </tr>
                               {(() => {
-                                const template = getTemplate(item)
-                                if (!template) return null
+                                const itemReqs = repairReqs.filter(r => r.inventory_id === item.id)
                                 const isOpen = expandedParts[item.id]
-                                const itemColor = item.color || null
-                                const partRows = template.parts.map(req => {
-                                  const matchColor = req.color || itemColor
-                                  const availItems = parts.filter(p =>
-                                    p.status === 'Available' &&
-                                    p.part_name === req.part_name &&
-                                    p.brand === req.brand &&
-                                    (!matchColor || p.color?.toLowerCase() === matchColor?.toLowerCase())
-                                  )
-                                  const avail = availItems.length
-                                  const have = Math.min(avail, req.qty)
-                                  const short = Math.max(0, req.qty - avail)
-                                  return { req, matchColor, avail, have, short }
+                                const rf = reqForm[item.id] || { part_id: '', qty: 1 }
+
+                                // Build unique part options from available parts
+                                const partOptions = []
+                                const seen = new Set()
+                                parts.filter(p => p.status === 'Available').forEach(p => {
+                                  const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
+                                  if (!seen.has(key)) {
+                                    seen.add(key)
+                                    partOptions.push({
+                                      id: p.id,
+                                      label: `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''}`,
+                                      part_name: p.part_name, brand: p.brand, color: p.color
+                                    })
+                                  }
                                 })
-                                const allGood = partRows.every(r => r.short === 0)
+
+                                const addReq = async () => {
+                                  if (!rf.part_id) return
+                                  const selected = partOptions.find(o => o.id === rf.part_id)
+                                  if (!selected) return
+                                  setSyncing(true)
+                                  await supabase.from('repair_requirements').insert({
+                                    inventory_id: item.id,
+                                    part_name: selected.part_name,
+                                    brand: selected.brand || null,
+                                    color: selected.color || null,
+                                    qty: parseInt(rf.qty) || 1,
+                                  })
+                                  setReqForm(prev => ({ ...prev, [item.id]: { part_id: '', qty: 1 } }))
+                                  setSyncing(false)
+                                }
+
+                                const removeReq = async (reqId) => {
+                                  setSyncing(true)
+                                  await supabase.from('repair_requirements').delete().eq('id', reqId)
+                                  setSyncing(false)
+                                }
+
                                 return (
-                                  <>
-                                    <tr>
-                                      <td colSpan={7} style={{ padding:'0 4px 6px', borderBottom:'1px solid var(--c-border)' }}>
-                                        <button
-                                          onClick={() => setExpandedParts(prev => ({ ...prev, [item.id]: !isOpen }))}
-                                          style={{ fontSize:11, background:'none', border:'none', cursor:'pointer', color: allGood ? 'var(--c-green)' : 'var(--c-amber)', padding:'2px 0', display:'flex', alignItems:'center', gap:4 }}
-                                        >
-                                          {allGood ? '✓' : '⚠'} Parts needed for repair
-                                          <span style={{ color:'var(--c-text3)', fontSize:10 }}>{isOpen ? '▲' : '▼'}</span>
-                                        </button>
-                                        {isOpen && (
-                                          <div style={{ marginTop:6, display:'flex', flexWrap:'wrap', gap:6 }}>
-                                            {partRows.map(({ req, matchColor, avail, have, short }) => {
-                                              const label = `${req.brand ? req.brand + ' ' : ''}${req.part_name}${matchColor ? ' — ' + matchColor : ''}`
-                                              const ok = short === 0
-                                              return (
-                                                <div key={label} style={{
-                                                  padding:'6px 10px', borderRadius:6, fontSize:11,
-                                                  background: ok ? 'var(--c-surface2)' : 'var(--c-red-bg,#2d1a1a)',
-                                                  border: `1px solid ${ok ? 'var(--c-border)' : 'var(--c-red)'}`,
-                                                  color: ok ? 'var(--c-text)' : 'var(--c-red)',
-                                                  minWidth:160
-                                                }}>
-                                                  <div style={{ fontWeight:600, marginBottom:2 }}>🔧 {label}</div>
-                                                  <div style={{ display:'flex', gap:8, color:'var(--c-text2)' }}>
-                                                    <span>Need: <strong>{req.qty}</strong></span>
-                                                    <span style={{ color: ok ? 'var(--c-green)' : 'var(--c-red)' }}>
-                                                      Have: <strong>{avail}</strong>
-                                                    </span>
-                                                    {short > 0 && <span style={{ color:'var(--c-red)', fontWeight:700 }}>Order: {short}</span>}
+                                  <tr>
+                                    <td colSpan={7} style={{ padding:'0 4px 8px', borderBottom:'1px solid var(--c-border)' }}>
+                                      <button
+                                        onClick={() => setExpandedParts(prev => ({ ...prev, [item.id]: !isOpen }))}
+                                        style={{ fontSize:11, background:'none', border:'none', cursor:'pointer',
+                                          color: itemReqs.length > 0 ? 'var(--c-brand)' : 'var(--c-text3)',
+                                          padding:'4px 0', display:'flex', alignItems:'center', gap:4 }}
+                                      >
+                                        🔧 Parts needed for repair ({itemReqs.length})
+                                        <span style={{ fontSize:10 }}>{isOpen ? '▲' : '▼'}</span>
+                                      </button>
+                                      {isOpen && (
+                                        <div style={{ marginTop:8, display:'flex', flexDirection:'column', gap:8, maxWidth:560 }}>
+                                          {/* Existing requirements */}
+                                          {itemReqs.length > 0 && (
+                                            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                                              {itemReqs.map(req => {
+                                                const avail = parts.filter(p =>
+                                                  p.status === 'Available' &&
+                                                  p.part_name === req.part_name &&
+                                                  (req.brand ? p.brand === req.brand : true) &&
+                                                  (req.color ? p.color?.toLowerCase() === req.color.toLowerCase() : true)
+                                                ).length
+                                                const ok = avail >= req.qty
+                                                const label = `${req.brand ? req.brand + ' ' : ''}${req.part_name}${req.color ? ' — ' + req.color : ''}`
+                                                return (
+                                                  <div key={req.id} style={{
+                                                    display:'flex', alignItems:'center', gap:8,
+                                                    padding:'6px 10px', borderRadius:6, fontSize:11,
+                                                    background: ok ? 'var(--c-surface2)' : 'rgba(255,100,100,0.08)',
+                                                    border:`1px solid ${ok ? 'var(--c-border)' : 'var(--c-red)'}`,
+                                                  }}>
+                                                    <div>
+                                                      <span style={{ fontWeight:600 }}>{label}</span>
+                                                      <span style={{ color:'var(--c-text3)', marginLeft:6 }}>×{req.qty}</span>
+                                                      <span style={{ marginLeft:8, color: ok ? 'var(--c-green)' : 'var(--c-red)', fontWeight:600 }}>
+                                                        {avail} in stock {!ok && `(need ${req.qty - avail} more)`}
+                                                      </span>
+                                                    </div>
+                                                    <button className="btn btn-sm btn-danger" style={{ padding:'1px 6px', fontSize:11 }}
+                                                      onClick={() => removeReq(req.id)}>×</button>
                                                   </div>
-                                                </div>
-                                              )
-                                            })}
-                                          </div>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  </>
+                                                )
+                                              })}
+                                            </div>
+                                          )}
+                                          {/* Add new requirement */}
+                                          {partOptions.length > 0 && (
+                                            <div style={{ display:'grid', gridTemplateColumns:'1fr 64px auto', gap:6, alignItems:'center' }}>
+                                              <select value={rf.part_id}
+                                                onChange={e => setReqForm(prev => ({ ...prev, [item.id]: { ...rf, part_id: e.target.value } }))}>
+                                                <option value="">— Add a part requirement —</option>
+                                                {partOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                                              </select>
+                                              <input type="number" min="1" step="1" value={rf.qty}
+                                                onChange={e => setReqForm(prev => ({ ...prev, [item.id]: { ...rf, qty: e.target.value } }))}
+                                                style={{ height:34 }} />
+                                              <button className="btn btn-sm btn-primary" onClick={addReq} disabled={!rf.part_id}>+ Add</button>
+                                            </div>
+                                          )}
+                                          {partOptions.length === 0 && itemReqs.length === 0 && (
+                                            <div style={{ fontSize:12, color:'var(--c-text3)' }}>No available parts in inventory to add as requirements.</div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
                                 )
                               })()}
                               </React.Fragment>

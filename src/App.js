@@ -18,22 +18,25 @@ export default function App() {
   const [expenses, setExpenses] = useState([])
   const [parts, setParts] = useState([])
   const [partLots, setPartLots] = useState([])
+  const [repairReqs, setRepairReqs] = useState([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
 
   const fetchAll = useCallback(async () => {
-    const [{ data: ordData }, { data: invData }, { data: expData }, { data: partsData }, { data: lotsData }] = await Promise.all([
+    const [{ data: ordData }, { data: invData }, { data: expData }, { data: partsData }, { data: lotsData }, { data: reqsData }] = await Promise.all([
       supabase.from('orders').select('*').order('sale_date', { ascending: false }),
       supabase.from('inventory').select('*').order('created_at', { ascending: false }),
       supabase.from('biz_expenses').select('*').order('expense_date', { ascending: false }),
       supabase.from('parts').select('*').order('created_at', { ascending: false }),
       supabase.from('part_lots').select('*').order('purchase_date', { ascending: false }),
+      supabase.from('repair_requirements').select('*'),
     ])
     if (ordData) setOrders(ordData)
     if (invData) setInventory(invData)
     if (expData) setExpenses(expData)
     if (partsData) setParts(partsData)
     if (lotsData) setPartLots(lotsData)
+    if (reqsData) setRepairReqs(reqsData)
     setLoading(false)
   }, [])
 
@@ -45,6 +48,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'biz_expenses' }, fetchAll)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'parts' }, fetchAll)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'part_lots' }, fetchAll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_requirements' }, fetchAll)
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [fetchAll])
@@ -82,7 +86,7 @@ export default function App() {
       <main className="app-main">
         {tab === 'Dashboard' && <Dashboard orders={orders} inventory={inventory} expenses={expenses} />}
         {tab === 'Orders' && <Orders orders={orders} inventory={inventory} parts={parts} setSyncing={setSyncing} />}
-        {tab === 'Inventory' && <Inventory inventory={inventory} parts={parts} setSyncing={setSyncing} />}
+        {tab === 'Inventory' && <Inventory inventory={inventory} parts={parts} repairReqs={repairReqs} setSyncing={setSyncing} />}
         {tab === 'Parts' && <Parts parts={parts} partLots={partLots} inventory={inventory} setSyncing={setSyncing} />}
         {tab === 'Expenses' && <BizExpenses expenses={expenses} setSyncing={setSyncing} />}
         {tab === 'Reports' && <Reports orders={orders} expenses={expenses} inventory={inventory} parts={parts} />}
