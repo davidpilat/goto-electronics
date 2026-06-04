@@ -80,6 +80,9 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
     purchase_cost: '', status: 'In Stock', purchase_date: today(), notes: ''
   })
   const [adding, setAdding] = useState(false)
+  const [newItemId, setNewItemId] = useState(null)   // id of just-saved item awaiting parts
+  const [newItemReqs, setNewItemReqs] = useState([]) // staged reqs for new item
+  const [newReqForm, setNewReqForm] = useState({ part_id: '', qty: 1 })
   const [filterStatus, setFilterStatus] = useState('')
   const [search, setSearch] = useState('')
   const [editId, setEditId] = useState(null)
@@ -142,7 +145,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
   const submit = async () => {
     if (!form.name.trim()) return
     setAdding(true); setSyncing(true)
-    await supabase.from('inventory').insert({
+    const { data: inserted } = await supabase.from('inventory').insert({
       name: form.name.trim(),
       sku: form.sku.trim() || null,
       serial_number: form.serial_number.trim() || null,
@@ -151,7 +154,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
       status: form.status,
       purchase_date: form.purchase_date,
       notes: form.notes.trim() || null,
-    })
+    }).select()
     // If serial number already has a matching order, mark as sold
     if (form.serial_number.trim()) {
       const { data: existingOrder } = await supabase
@@ -165,8 +168,52 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
           .neq('status', 'Sold')
       }
     }
-    setForm({ name:'', sku:'', serial_number:'', condition:'Good', purchase_cost:'', status:'In Stock', purchase_date:today(), notes:'' })
     setAdding(false); setSyncing(false)
+    if (inserted?.[0]?.id) {
+      setNewItemId(inserted[0].id)
+      setNewItemReqs([])
+      setNewReqForm({ part_id: '', qty: 1 })
+    }
+  }
+
+  const finishNewItem = () => {
+    setNewItemId(null)
+    setNewItemReqs([])
+    setNewReqForm({ part_id: '', qty: 1 })
+    setForm({ name:'', sku:'', serial_number:'', condition:'Good', purchase_cost:'', status:'In Stock', purchase_date:today(), notes:'' })
+  }
+
+  const addNewItemReq = async () => {
+    if (!newReqForm.part_id || !newItemId) return
+    const partOptions = []
+    const seen = new Set()
+    parts.filter(p => p.status === 'Available').forEach(p => {
+      const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        partOptions.push({ id: p.id, part_name: p.part_name, brand: p.brand, color: p.color })
+      }
+    })
+    const selected = partOptions.find(o => o.id === newReqForm.part_id)
+    if (!selected) return
+    setSyncing(true)
+    const { data: inserted } = await supabase.from('repair_requirements').insert({
+      inventory_id: newItemId,
+      part_name: selected.part_name,
+      brand: selected.brand || null,
+      color: selected.color || null,
+      qty: parseInt(newReqForm.qty) || 1,
+    }).select()
+    if (inserted?.[0]) setNewItemReqs(prev => [...prev, inserted[0]])
+    setNewReqForm({ part_id: '', qty: 1 })
+    setSyncing(false)
+  }
+
+  const removeNewItemReq = async (reqId) => {
+    setSyncing(true)
+    await supabase.from('repair_requirements').delete().eq('id', reqId)
+    setNewItemReqs(prev => prev.filter(r => r.id !== reqId))
+    setSyncing(false)
   }
 
   const saveEdit = async (id) => {
@@ -292,49 +339,116 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
       {/* Add item manually */}
       <div className="card">
         <div className="card-title">Add item manually</div>
-        <div className="form-grid form-grid-3" style={{ marginBottom:10 }}>
-          <div className="form-group" style={{ gridColumn:'span 2' }}>
-            <label className="form-label">Item name *</label>
-            <input type="text" placeholder="e.g. iPhone 12 64GB Black" value={form.name} onChange={e => set('name', e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">SKU / ID</label>
-            <input type="text" placeholder="e.g. IP12-64-BLK" value={form.sku} onChange={e => set('sku', e.target.value)} />
-          </div>
-        </div>
-        <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
-          <div className="form-group">
-            <label className="form-label">Serial number</label>
-            <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={form.serial_number} onChange={e => set('serial_number', e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Purchase cost $</label>
-            <input type="number" placeholder="0.00" min="0" step="0.01" value={form.purchase_cost} onChange={e => set('purchase_cost', e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Condition</label>
-            <select value={form.condition} onChange={e => set('condition', e.target.value)}>
-              {CONDITIONS.map(c => <option key={c}>{c}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Status</label>
-            <select value={form.status} onChange={e => set('status', e.target.value)}>
-              {STATUSES.map(s => <option key={s}>{s}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="form-grid form-grid-2" style={{ marginBottom:12 }}>
-          <div className="form-group">
-            <label className="form-label">Purchase date</label>
-            <input type="date" value={form.purchase_date} onChange={e => set('purchase_date', e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Notes</label>
-            <input type="text" placeholder="Any notes" value={form.notes} onChange={e => set('notes', e.target.value)} />
-          </div>
-        </div>
-        <button className="btn btn-primary" onClick={submit} disabled={adding}>{adding ? 'Saving…' : 'Add item'}</button>
+        {!newItemId ? (
+          <>
+            <div className="form-grid form-grid-3" style={{ marginBottom:10 }}>
+              <div className="form-group" style={{ gridColumn:'span 2' }}>
+                <label className="form-label">Item name *</label>
+                <input type="text" placeholder="e.g. iPhone 12 64GB Black" value={form.name} onChange={e => set('name', e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">SKU / ID</label>
+                <input type="text" placeholder="e.g. IP12-64-BLK" value={form.sku} onChange={e => set('sku', e.target.value)} />
+              </div>
+            </div>
+            <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
+              <div className="form-group">
+                <label className="form-label">Serial number</label>
+                <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={form.serial_number} onChange={e => set('serial_number', e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Purchase cost $</label>
+                <input type="number" placeholder="0.00" min="0" step="0.01" value={form.purchase_cost} onChange={e => set('purchase_cost', e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Condition</label>
+                <select value={form.condition} onChange={e => set('condition', e.target.value)}>
+                  {CONDITIONS.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Status</label>
+                <select value={form.status} onChange={e => set('status', e.target.value)}>
+                  {STATUSES.map(s => <option key={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="form-grid form-grid-2" style={{ marginBottom:12 }}>
+              <div className="form-group">
+                <label className="form-label">Purchase date</label>
+                <input type="date" value={form.purchase_date} onChange={e => set('purchase_date', e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Notes</label>
+                <input type="text" placeholder="Any notes" value={form.notes} onChange={e => set('notes', e.target.value)} />
+              </div>
+            </div>
+            <button className="btn btn-primary" onClick={submit} disabled={adding}>{adding ? 'Saving…' : 'Add item'}</button>
+          </>
+        ) : (
+          <>
+            {/* Item saved — now add parts */}
+            <div style={{ padding:'10px 14px', background:'var(--c-surface2)', borderRadius:8, marginBottom:14, display:'flex', alignItems:'center', gap:8 }}>
+              <span style={{ color:'var(--c-green)', fontSize:16 }}>✓</span>
+              <span style={{ fontWeight:600 }}>{form.name}</span>
+              <span style={{ fontSize:12, color:'var(--c-text3)' }}>saved — add parts needed for repair below, or skip</span>
+            </div>
+
+            {/* Parts already added */}
+            {newItemReqs.length > 0 && (
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
+                {newItemReqs.map(req => {
+                  const label = `${req.brand ? req.brand + ' ' : ''}${req.part_name}${req.color ? ' — ' + req.color : ''}`
+                  return (
+                    <div key={req.id} style={{
+                      display:'flex', alignItems:'center', gap:8, padding:'6px 10px',
+                      borderRadius:6, fontSize:11, background:'var(--c-surface2)', border:'1px solid var(--c-border)'
+                    }}>
+                      <span>🔧 <strong>{label}</strong> ×{req.qty}</span>
+                      <button className="btn btn-sm btn-danger" style={{ padding:'1px 6px', fontSize:11 }}
+                        onClick={() => removeNewItemReq(req.id)}>×</button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Add part row */}
+            {(() => {
+              const partOptions = []
+              const seen = new Set()
+              parts.filter(p => p.status === 'Available').forEach(p => {
+                const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
+                if (!seen.has(key)) {
+                  seen.add(key)
+                  partOptions.push({
+                    id: p.id,
+                    label: `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''}`
+                  })
+                }
+              })
+              if (partOptions.length === 0) return (
+                <div style={{ fontSize:12, color:'var(--c-text3)', marginBottom:12 }}>No available parts in stock to add as requirements.</div>
+              )
+              return (
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 64px auto', gap:6, marginBottom:14 }}>
+                  <select value={newReqForm.part_id} onChange={e => setNewReqForm(prev => ({ ...prev, part_id: e.target.value }))}>
+                    <option value="">— Select part needed —</option>
+                    {partOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                  </select>
+                  <input type="number" min="1" step="1" value={newReqForm.qty}
+                    onChange={e => setNewReqForm(prev => ({ ...prev, qty: e.target.value }))}
+                    style={{ height:36 }} />
+                  <button className="btn btn-sm btn-primary" onClick={addNewItemReq} disabled={!newReqForm.part_id}>+ Add</button>
+                </div>
+              )
+            })()}
+
+            <div style={{ display:'flex', gap:8 }}>
+              <button className="btn btn-primary" onClick={finishNewItem}>Done — add another item</button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Parts to Order summary */}
