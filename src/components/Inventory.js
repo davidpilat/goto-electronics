@@ -106,8 +106,14 @@ function PartPicker({ parts, value, qty, onSelect, onQtyChange, onAdd, onCreateN
         <div className="form-group" style={{ margin:0 }}>
           <label className="form-label" style={{ fontSize:11 }}>Part name</label>
           <select value={filter.part_name} onChange={e => {
-            onFilterChange({ ...filter, part_name: e.target.value, color: '' })
-            onSelect('')
+            const newFilter = { ...filter, part_name: e.target.value, color: '' }
+            onFilterChange(newFilter)
+            // Auto-select if only one match and no colors to disambiguate
+            const filtered = (filter.brand ? available.filter(p => p.brand === filter.brand) : available)
+              .filter(p => p.part_name === e.target.value)
+            const uniqueColors = [...new Set(filtered.map(p => p.color).filter(Boolean))]
+            if (uniqueColors.length === 0 && filtered[0]) onSelect(filtered[0].id)
+            else onSelect('')
           }} style={{ height:34, fontSize:12 }}>
             <option value="">— All parts —</option>
             {partNames.map(n => <option key={n} value={n}>{n}</option>)}
@@ -119,10 +125,14 @@ function PartPicker({ parts, value, qty, onSelect, onQtyChange, onAdd, onCreateN
           <select value={filter.color} onChange={e => {
             const newFilter = { ...filter, color: e.target.value }
             onFilterChange(newFilter)
-            // Auto-select the matching part
-            const match = afterName.find(p => p.color === e.target.value || (!e.target.value && true))
+            const match = afterName.find(p => p.color === e.target.value)
             if (match) onSelect(match.id)
-            else onSelect('')
+            else {
+              // No color filter — pick first match
+              const first = afterName[0]
+              if (first) onSelect(first.id)
+              else onSelect('')
+            }
           }} style={{ height:34, fontSize:12 }} disabled={colors.length === 0}>
             <option value="">{colors.length === 0 ? '— No color —' : '— Any color —'}</option>
             {colors.map(c => <option key={c} value={c}>{c}</option>)}
@@ -300,7 +310,6 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
   const createAndSelectPart = async (context) => {
     if (!newPartFields.part_name.trim()) return
     setSyncing(true)
-    // Insert with status 'Needed' — defines the part type without adding physical stock
     const { data: inserted } = await supabase.from('parts').insert({
       part_name: newPartFields.part_name.trim(),
       brand: newPartFields.brand.trim() || null,
@@ -311,11 +320,18 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
     }).select()
     setSyncing(false)
     if (!inserted?.[0]) return
-    const newId = inserted[0].id
+    const p = inserted[0]
+    const newFilter = {
+      brand: p.brand || '',
+      part_name: p.part_name || '',
+      color: p.color || '',
+    }
     if (context === 'new') {
-      setNewReqForm(prev => ({ ...prev, part_id: newId }))
+      setNewReqFilter(newFilter)
+      setNewReqForm(prev => ({ ...prev, part_id: p.id }))
     } else {
-      setReqForm(prev => ({ ...prev, [context]: { ...(prev[context] || { qty:1 }), part_id: newId } }))
+      setReqFilter(prev => ({ ...prev, [context]: newFilter }))
+      setReqForm(prev => ({ ...prev, [context]: { ...(prev[context] || { qty:1 }), part_id: p.id } }))
     }
     setNewPartForm(null)
     setNewPartFields({ part_name: '', brand: '', color: '', cost: '' })
