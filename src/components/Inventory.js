@@ -74,6 +74,83 @@ function normalizeRow(row) {
   }
 }
 
+function PartPicker({ parts, value, qty, onSelect, onQtyChange, onAdd, onCreateNew, filter, onFilterChange, disabled }) {
+  const available = parts.filter(p => p.status === 'Available' || p.status === 'Needed')
+
+  const brands = [...new Set(available.map(p => p.brand).filter(Boolean))].sort()
+  const afterBrand = filter.brand ? available.filter(p => p.brand === filter.brand) : available
+  const partNames = [...new Set(afterBrand.map(p => p.part_name).filter(Boolean))].sort()
+  const afterName = filter.part_name ? afterBrand.filter(p => p.part_name === filter.part_name) : afterBrand
+  const colors = [...new Set(afterName.map(p => p.color).filter(Boolean))].sort()
+
+  // Resolve selected part_id from filters
+  const matchedPart = afterName.find(p =>
+    (!filter.color || p.color === filter.color)
+  )
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
+        {/* Brand */}
+        <div className="form-group" style={{ margin:0 }}>
+          <label className="form-label" style={{ fontSize:11 }}>Brand</label>
+          <select value={filter.brand} onChange={e => {
+            onFilterChange({ brand: e.target.value, part_name: '', color: '' })
+            onSelect('')
+          }} style={{ height:34, fontSize:12 }}>
+            <option value="">— All brands —</option>
+            {brands.map(b => <option key={b} value={b}>{b}</option>)}
+          </select>
+        </div>
+        {/* Part name */}
+        <div className="form-group" style={{ margin:0 }}>
+          <label className="form-label" style={{ fontSize:11 }}>Part name</label>
+          <select value={filter.part_name} onChange={e => {
+            onFilterChange({ ...filter, part_name: e.target.value, color: '' })
+            onSelect('')
+          }} style={{ height:34, fontSize:12 }}>
+            <option value="">— All parts —</option>
+            {partNames.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+        {/* Color */}
+        <div className="form-group" style={{ margin:0 }}>
+          <label className="form-label" style={{ fontSize:11 }}>Color</label>
+          <select value={filter.color} onChange={e => {
+            const newFilter = { ...filter, color: e.target.value }
+            onFilterChange(newFilter)
+            // Auto-select the matching part
+            const match = afterName.find(p => p.color === e.target.value || (!e.target.value && true))
+            if (match) onSelect(match.id)
+            else onSelect('')
+          }} style={{ height:34, fontSize:12 }} disabled={colors.length === 0}>
+            <option value="">{colors.length === 0 ? '— No color —' : '— Any color —'}</option>
+            {colors.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+      </div>
+      {/* Qty + Add row */}
+      <div style={{ display:'grid', gridTemplateColumns:'80px auto auto', gap:6, alignItems:'center' }}>
+        <div className="form-group" style={{ margin:0 }}>
+          <label className="form-label" style={{ fontSize:11 }}>Qty</label>
+          <input type="number" min="1" step="1" value={qty}
+            onChange={e => onQtyChange(e.target.value)}
+            style={{ height:34 }} />
+        </div>
+        <button className="btn btn-primary btn-sm" style={{ alignSelf:'flex-end', height:34 }}
+          onClick={onAdd}
+          disabled={disabled || !value}>
+          + Add requirement
+        </button>
+        <button className="btn btn-sm" style={{ alignSelf:'flex-end', height:34, color:'var(--c-brand)', fontSize:12 }}
+          onClick={onCreateNew}>
+          ＋ Create new part…
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function Inventory({ inventory, parts = [], repairReqs = [], setSyncing }) {
   const [form, setForm] = useState({
     name: '', sku: '', serial_number: '', condition: 'Good',
@@ -83,8 +160,10 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
   const [newItemId, setNewItemId] = useState(null)   // id of just-saved item awaiting parts
   const [newItemReqs, setNewItemReqs] = useState([]) // staged reqs for new item
   const [newReqForm, setNewReqForm] = useState({ part_id: '', qty: 1 })
+  const [newReqFilter, setNewReqFilter] = useState({ brand: '', part_name: '', color: '' })
   const [newPartForm, setNewPartForm] = useState(null)
   const [newPartFields, setNewPartFields] = useState({ part_name: '', brand: '', color: '', cost: '' })
+  const [reqFilter, setReqFilter] = useState({}) // { [inventoryId]: { brand, part_name, color } }
   const [filterStatus, setFilterStatus] = useState('')
   const [search, setSearch] = useState('')
   const [editId, setEditId] = useState(null)
@@ -440,70 +519,51 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
             )}
 
             {/* Add part row */}
-            {(() => {
-              const partOptions = []
-              const seen = new Set()
-              parts.filter(p => p.status === 'Available' || p.status === 'Needed').forEach(p => {
-                const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
-                if (!seen.has(key)) {
-                  seen.add(key)
-                  partOptions.push({
-                    id: p.id,
-                    label: `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''}`
-                  })
-                }
-              })
-              return (
-                <div style={{ marginBottom:14 }}>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 64px auto', gap:6, marginBottom:6 }}>
-                    <select value={newReqForm.part_id}
-                      onChange={e => {
-                        if (e.target.value === '__create__') { setNewPartForm('new'); setNewReqForm(prev => ({ ...prev, part_id: '' })) }
-                        else setNewReqForm(prev => ({ ...prev, part_id: e.target.value }))
-                      }}>
-                      <option value="">— Select part needed —</option>
-                      {partOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                      <option value="__create__">＋ Create new part…</option>
-                    </select>
-                    <input type="number" min="1" step="1" value={newReqForm.qty}
-                      onChange={e => setNewReqForm(prev => ({ ...prev, qty: e.target.value }))}
-                      style={{ height:36 }} />
-                    <button className="btn btn-sm btn-primary" onClick={addNewItemReq} disabled={!newReqForm.part_id}>+ Add</button>
-                  </div>
-                  {newPartForm === 'new' && (
-                    <div style={{ padding:'12px', background:'var(--c-surface2)', borderRadius:8, border:'1px solid var(--c-border)' }}>
-                      <div style={{ fontSize:12, fontWeight:600, marginBottom:8, color:'var(--c-brand)' }}>Define new part type</div>
-                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 80px', gap:6, marginBottom:8 }}>
-                        <div className="form-group" style={{ margin:0 }}>
-                          <label className="form-label">Part name *</label>
-                          <input type="text" placeholder="e.g. Studio 3 Headband" value={newPartFields.part_name}
-                            onChange={e => setNewPartFields(prev => ({ ...prev, part_name: e.target.value }))} style={{ height:34 }} />
-                        </div>
-                        <div className="form-group" style={{ margin:0 }}>
-                          <label className="form-label">Brand</label>
-                          <input type="text" placeholder="e.g. Beats" value={newPartFields.brand}
-                            onChange={e => setNewPartFields(prev => ({ ...prev, brand: e.target.value }))} style={{ height:34 }} />
-                        </div>
-                        <div className="form-group" style={{ margin:0 }}>
-                          <label className="form-label">Color</label>
-                          <input type="text" placeholder="e.g. Midnight Black" value={newPartFields.color}
-                            onChange={e => setNewPartFields(prev => ({ ...prev, color: e.target.value }))} style={{ height:34 }} />
-                        </div>
-                        <div className="form-group" style={{ margin:0 }}>
-                          <label className="form-label">Est. cost $</label>
-                          <input type="number" placeholder="0.00" min="0" step="0.01" value={newPartFields.cost}
-                            onChange={e => setNewPartFields(prev => ({ ...prev, cost: e.target.value }))} style={{ height:34 }} />
-                        </div>
-                      </div>
-                      <div style={{ display:'flex', gap:6 }}>
-                        <button className="btn btn-sm btn-primary" onClick={() => createAndSelectPart('new')} disabled={!newPartFields.part_name.trim()}>Create & select</button>
-                        <button className="btn btn-sm" onClick={() => { setNewPartForm(null); setNewPartFields({ part_name:'', brand:'', color:'', cost:'' }) }}>Cancel</button>
-                      </div>
+            <div style={{ marginBottom:14 }}>
+              <label className="form-label">Parts needed for repair</label>
+              <PartPicker
+                parts={parts}
+                value={newReqForm.part_id}
+                qty={newReqForm.qty}
+                onSelect={id => setNewReqForm(prev => ({ ...prev, part_id: id }))}
+                onQtyChange={v => setNewReqForm(prev => ({ ...prev, qty: v }))}
+                onAdd={addNewItemReq}
+                onCreateNew={() => { setNewPartForm('new'); setNewPartFields({ part_name:'', brand:'', color:'', cost:'' }) }}
+                filter={newReqFilter}
+                onFilterChange={f => { setNewReqFilter(f); setNewReqForm(prev => ({ ...prev, part_id: '' })) }}
+              />
+              {newPartForm === 'new' && (
+                <div style={{ marginTop:8, padding:'12px', background:'var(--c-surface2)', borderRadius:8, border:'1px solid var(--c-border)' }}>
+                  <div style={{ fontSize:12, fontWeight:600, marginBottom:8, color:'var(--c-brand)' }}>Define new part type</div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 80px', gap:6, marginBottom:8 }}>
+                    <div className="form-group" style={{ margin:0 }}>
+                      <label className="form-label">Part name *</label>
+                      <input type="text" placeholder="e.g. Studio 3 Headband" value={newPartFields.part_name}
+                        onChange={e => setNewPartFields(prev => ({ ...prev, part_name: e.target.value }))} style={{ height:34 }} />
                     </div>
-                  )}
+                    <div className="form-group" style={{ margin:0 }}>
+                      <label className="form-label">Brand</label>
+                      <input type="text" placeholder="e.g. Beats" value={newPartFields.brand}
+                        onChange={e => setNewPartFields(prev => ({ ...prev, brand: e.target.value }))} style={{ height:34 }} />
+                    </div>
+                    <div className="form-group" style={{ margin:0 }}>
+                      <label className="form-label">Color</label>
+                      <input type="text" placeholder="e.g. Midnight Black" value={newPartFields.color}
+                        onChange={e => setNewPartFields(prev => ({ ...prev, color: e.target.value }))} style={{ height:34 }} />
+                    </div>
+                    <div className="form-group" style={{ margin:0 }}>
+                      <label className="form-label">Est. cost $</label>
+                      <input type="number" placeholder="0.00" min="0" step="0.01" value={newPartFields.cost}
+                        onChange={e => setNewPartFields(prev => ({ ...prev, cost: e.target.value }))} style={{ height:34 }} />
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button className="btn btn-sm btn-primary" onClick={() => createAndSelectPart('new')} disabled={!newPartFields.part_name.trim()}>Create & select</button>
+                    <button className="btn btn-sm" onClick={() => { setNewPartForm(null); setNewPartFields({ part_name:'', brand:'', color:'', cost:'' }) }}>Cancel</button>
+                  </div>
                 </div>
-              )
-            })()}
+              )}
+            </div>
 
             <div style={{ display:'flex', gap:8 }}>
               <button className="btn btn-primary" onClick={finishNewItem}>Done — add another item</button>
@@ -680,24 +740,9 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                 const isOpen = expandedParts[item.id]
                                 const rf = reqForm[item.id] || { part_id: '', qty: 1 }
 
-                                // Build unique part options from available and needed parts
-                                const partOptions = []
-                                const seen = new Set()
-                                parts.filter(p => p.status === 'Available' || p.status === 'Needed').forEach(p => {
-                                  const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
-                                  if (!seen.has(key)) {
-                                    seen.add(key)
-                                    partOptions.push({
-                                      id: p.id,
-                                      label: `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''}`,
-                                      part_name: p.part_name, brand: p.brand, color: p.color
-                                    })
-                                  }
-                                })
-
                                 const addReq = async () => {
                                   if (!rf.part_id) return
-                                  const selected = partOptions.find(o => o.id === rf.part_id)
+                                  const selected = parts.find(p => p.id === rf.part_id)
                                   if (!selected) return
                                   setSyncing(true)
                                   await supabase.from('repair_requirements').insert({
@@ -766,28 +811,22 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                           )}
                                           {/* Add new requirement */}
                                           <div>
-                                            <div style={{ display:'grid', gridTemplateColumns:'1fr 64px auto', gap:6, alignItems:'center', marginBottom:6 }}>
-                                              <select value={rf.part_id}
-                                                onChange={e => {
-                                                  if (e.target.value === '__create__') {
-                                                    setNewPartForm(item.id)
-                                                    setNewPartFields({ part_name:'', brand:'', color:'', cost:'' })
-                                                    setReqForm(prev => ({ ...prev, [item.id]: { ...rf, part_id: '' } }))
-                                                  } else {
-                                                    setReqForm(prev => ({ ...prev, [item.id]: { ...rf, part_id: e.target.value } }))
-                                                  }
-                                                }}>
-                                                <option value="">— Add a part requirement —</option>
-                                                {partOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                                                <option value="__create__">＋ Create new part…</option>
-                                              </select>
-                                              <input type="number" min="1" step="1" value={rf.qty}
-                                                onChange={e => setReqForm(prev => ({ ...prev, [item.id]: { ...rf, qty: e.target.value } }))}
-                                                style={{ height:34 }} />
-                                              <button className="btn btn-sm btn-primary" onClick={addReq} disabled={!rf.part_id}>+ Add</button>
-                                            </div>
+                                            <PartPicker
+                                              parts={parts}
+                                              value={rf.part_id}
+                                              qty={rf.qty || 1}
+                                              onSelect={id => setReqForm(prev => ({ ...prev, [item.id]: { ...rf, part_id: id } }))}
+                                              onQtyChange={v => setReqForm(prev => ({ ...prev, [item.id]: { ...rf, qty: v } }))}
+                                              onAdd={addReq}
+                                              onCreateNew={() => { setNewPartForm(item.id); setNewPartFields({ part_name:'', brand:'', color:'', cost:'' }) }}
+                                              filter={reqFilter[item.id] || { brand:'', part_name:'', color:'' }}
+                                              onFilterChange={f => {
+                                                setReqFilter(prev => ({ ...prev, [item.id]: f }))
+                                                setReqForm(prev => ({ ...prev, [item.id]: { ...rf, part_id: '' } }))
+                                              }}
+                                            />
                                             {newPartForm === item.id && (
-                                              <div style={{ padding:'12px', background:'var(--c-surface2)', borderRadius:8, border:'1px solid var(--c-border)' }}>
+                                              <div style={{ marginTop:8, padding:'12px', background:'var(--c-surface2)', borderRadius:8, border:'1px solid var(--c-border)' }}>
                                                 <div style={{ fontSize:12, fontWeight:600, marginBottom:8, color:'var(--c-brand)' }}>Define new part type</div>
                                                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 80px', gap:6, marginBottom:8 }}>
                                                   <div className="form-group" style={{ margin:0 }}>
