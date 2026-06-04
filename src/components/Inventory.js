@@ -517,7 +517,8 @@ export default function Inventory({ inventory, parts = [], setSyncing }) {
                                 </td>
                               </tr>
                             ) : (
-                              <tr key={item.id}>
+                              <React.Fragment key={item.id}>
+                              <tr>
                                 <td style={{ fontSize:12, fontFamily:"'DM Mono',monospace", color:'var(--c-text2)' }}>{item.serial_number || '—'}</td>
                                 <td>{conditionBadge(item.condition)}</td>
                                 <td className="hide-mobile mono">{fmtMoney(item.purchase_cost)}</td>
@@ -590,6 +591,7 @@ export default function Inventory({ inventory, parts = [], setSyncing }) {
                                   </>
                                 )
                               })()}
+                              </React.Fragment>
                             ))}
                           </tbody>
                         </table>
