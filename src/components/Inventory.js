@@ -83,7 +83,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
   const [newItemId, setNewItemId] = useState(null)   // id of just-saved item awaiting parts
   const [newItemReqs, setNewItemReqs] = useState([]) // staged reqs for new item
   const [newReqForm, setNewReqForm] = useState({ part_id: '', qty: 1 })
-  const [newPartForm, setNewPartForm] = useState(null) // null=hidden, 'new'=new item form, itemId=per-item form
+  const [newPartForm, setNewPartForm] = useState(null)
   const [newPartFields, setNewPartFields] = useState({ part_name: '', brand: '', color: '', cost: '' })
   const [filterStatus, setFilterStatus] = useState('')
   const [search, setSearch] = useState('')
@@ -219,15 +219,15 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
   }
 
   const createAndSelectPart = async (context) => {
-    // context: 'new' = new item form, otherwise = inventoryId for per-item form
     if (!newPartFields.part_name.trim()) return
     setSyncing(true)
+    // Insert with status 'Needed' — defines the part type without adding physical stock
     const { data: inserted } = await supabase.from('parts').insert({
       part_name: newPartFields.part_name.trim(),
       brand: newPartFields.brand.trim() || null,
       color: newPartFields.color.trim() || null,
       cost: parseFloat(newPartFields.cost) || 0,
-      status: 'Available',
+      status: 'Needed',
       purchase_date: today(),
     }).select()
     setSyncing(false)
@@ -443,7 +443,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
             {(() => {
               const partOptions = []
               const seen = new Set()
-              parts.filter(p => p.status === 'Available').forEach(p => {
+              parts.filter(p => p.status === 'Available' || p.status === 'Needed').forEach(p => {
                 const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
                 if (!seen.has(key)) {
                   seen.add(key)
@@ -472,7 +472,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                   </div>
                   {newPartForm === 'new' && (
                     <div style={{ padding:'12px', background:'var(--c-surface2)', borderRadius:8, border:'1px solid var(--c-border)' }}>
-                      <div style={{ fontSize:12, fontWeight:600, marginBottom:8, color:'var(--c-brand)' }}>Create new part</div>
+                      <div style={{ fontSize:12, fontWeight:600, marginBottom:8, color:'var(--c-brand)' }}>Define new part type</div>
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 80px', gap:6, marginBottom:8 }}>
                         <div className="form-group" style={{ margin:0 }}>
                           <label className="form-label">Part name *</label>
@@ -490,7 +490,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                             onChange={e => setNewPartFields(prev => ({ ...prev, color: e.target.value }))} style={{ height:34 }} />
                         </div>
                         <div className="form-group" style={{ margin:0 }}>
-                          <label className="form-label">Cost $</label>
+                          <label className="form-label">Est. cost $</label>
                           <input type="number" placeholder="0.00" min="0" step="0.01" value={newPartFields.cost}
                             onChange={e => setNewPartFields(prev => ({ ...prev, cost: e.target.value }))} style={{ height:34 }} />
                         </div>
@@ -680,10 +680,10 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                 const isOpen = expandedParts[item.id]
                                 const rf = reqForm[item.id] || { part_id: '', qty: 1 }
 
-                                // Build unique part options from available parts
+                                // Build unique part options from available and needed parts
                                 const partOptions = []
                                 const seen = new Set()
-                                parts.filter(p => p.status === 'Available').forEach(p => {
+                                parts.filter(p => p.status === 'Available' || p.status === 'Needed').forEach(p => {
                                   const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
                                   if (!seen.has(key)) {
                                     seen.add(key)
@@ -788,7 +788,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                             </div>
                                             {newPartForm === item.id && (
                                               <div style={{ padding:'12px', background:'var(--c-surface2)', borderRadius:8, border:'1px solid var(--c-border)' }}>
-                                                <div style={{ fontSize:12, fontWeight:600, marginBottom:8, color:'var(--c-brand)' }}>Create new part</div>
+                                                <div style={{ fontSize:12, fontWeight:600, marginBottom:8, color:'var(--c-brand)' }}>Define new part type</div>
                                                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 80px', gap:6, marginBottom:8 }}>
                                                   <div className="form-group" style={{ margin:0 }}>
                                                     <label className="form-label">Part name *</label>
@@ -806,7 +806,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                                       onChange={e => setNewPartFields(prev => ({ ...prev, color: e.target.value }))} style={{ height:34 }} />
                                                   </div>
                                                   <div className="form-group" style={{ margin:0 }}>
-                                                    <label className="form-label">Cost $</label>
+                                                    <label className="form-label">Est. cost $</label>
                                                     <input type="number" placeholder="0.00" min="0" step="0.01" value={newPartFields.cost}
                                                       onChange={e => setNewPartFields(prev => ({ ...prev, cost: e.target.value }))} style={{ height:34 }} />
                                                   </div>
@@ -818,9 +818,6 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                               </div>
                                             )}
                                           </div>
-                                          {partOptions.length === 0 && itemReqs.length === 0 && (
-                                            <div style={{ fontSize:12, color:'var(--c-text3)' }}>No available parts — use "Create new part" above to add one.</div>
-                                          )}
                                         </div>
                                       )}
                                     </td>
