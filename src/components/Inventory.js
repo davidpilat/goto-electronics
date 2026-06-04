@@ -83,6 +83,8 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
   const [newItemId, setNewItemId] = useState(null)   // id of just-saved item awaiting parts
   const [newItemReqs, setNewItemReqs] = useState([]) // staged reqs for new item
   const [newReqForm, setNewReqForm] = useState({ part_id: '', qty: 1 })
+  const [newPartForm, setNewPartForm] = useState(null) // null=hidden, 'new'=new item form, itemId=per-item form
+  const [newPartFields, setNewPartFields] = useState({ part_name: '', brand: '', color: '', cost: '' })
   const [filterStatus, setFilterStatus] = useState('')
   const [search, setSearch] = useState('')
   const [editId, setEditId] = useState(null)
@@ -214,6 +216,30 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
     await supabase.from('repair_requirements').delete().eq('id', reqId)
     setNewItemReqs(prev => prev.filter(r => r.id !== reqId))
     setSyncing(false)
+  }
+
+  const createAndSelectPart = async (context) => {
+    // context: 'new' = new item form, otherwise = inventoryId for per-item form
+    if (!newPartFields.part_name.trim()) return
+    setSyncing(true)
+    const { data: inserted } = await supabase.from('parts').insert({
+      part_name: newPartFields.part_name.trim(),
+      brand: newPartFields.brand.trim() || null,
+      color: newPartFields.color.trim() || null,
+      cost: parseFloat(newPartFields.cost) || 0,
+      status: 'Available',
+      purchase_date: today(),
+    }).select()
+    setSyncing(false)
+    if (!inserted?.[0]) return
+    const newId = inserted[0].id
+    if (context === 'new') {
+      setNewReqForm(prev => ({ ...prev, part_id: newId }))
+    } else {
+      setReqForm(prev => ({ ...prev, [context]: { ...(prev[context] || { qty:1 }), part_id: newId } }))
+    }
+    setNewPartForm(null)
+    setNewPartFields({ part_name: '', brand: '', color: '', cost: '' })
   }
 
   const saveEdit = async (id) => {
@@ -427,19 +453,54 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                   })
                 }
               })
-              if (partOptions.length === 0) return (
-                <div style={{ fontSize:12, color:'var(--c-text3)', marginBottom:12 }}>No available parts in stock to add as requirements.</div>
-              )
               return (
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 64px auto', gap:6, marginBottom:14 }}>
-                  <select value={newReqForm.part_id} onChange={e => setNewReqForm(prev => ({ ...prev, part_id: e.target.value }))}>
-                    <option value="">— Select part needed —</option>
-                    {partOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                  </select>
-                  <input type="number" min="1" step="1" value={newReqForm.qty}
-                    onChange={e => setNewReqForm(prev => ({ ...prev, qty: e.target.value }))}
-                    style={{ height:36 }} />
-                  <button className="btn btn-sm btn-primary" onClick={addNewItemReq} disabled={!newReqForm.part_id}>+ Add</button>
+                <div style={{ marginBottom:14 }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 64px auto', gap:6, marginBottom:6 }}>
+                    <select value={newReqForm.part_id}
+                      onChange={e => {
+                        if (e.target.value === '__create__') { setNewPartForm('new'); setNewReqForm(prev => ({ ...prev, part_id: '' })) }
+                        else setNewReqForm(prev => ({ ...prev, part_id: e.target.value }))
+                      }}>
+                      <option value="">— Select part needed —</option>
+                      {partOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                      <option value="__create__">＋ Create new part…</option>
+                    </select>
+                    <input type="number" min="1" step="1" value={newReqForm.qty}
+                      onChange={e => setNewReqForm(prev => ({ ...prev, qty: e.target.value }))}
+                      style={{ height:36 }} />
+                    <button className="btn btn-sm btn-primary" onClick={addNewItemReq} disabled={!newReqForm.part_id}>+ Add</button>
+                  </div>
+                  {newPartForm === 'new' && (
+                    <div style={{ padding:'12px', background:'var(--c-surface2)', borderRadius:8, border:'1px solid var(--c-border)' }}>
+                      <div style={{ fontSize:12, fontWeight:600, marginBottom:8, color:'var(--c-brand)' }}>Create new part</div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 80px', gap:6, marginBottom:8 }}>
+                        <div className="form-group" style={{ margin:0 }}>
+                          <label className="form-label">Part name *</label>
+                          <input type="text" placeholder="e.g. Studio 3 Headband" value={newPartFields.part_name}
+                            onChange={e => setNewPartFields(prev => ({ ...prev, part_name: e.target.value }))} style={{ height:34 }} />
+                        </div>
+                        <div className="form-group" style={{ margin:0 }}>
+                          <label className="form-label">Brand</label>
+                          <input type="text" placeholder="e.g. Beats" value={newPartFields.brand}
+                            onChange={e => setNewPartFields(prev => ({ ...prev, brand: e.target.value }))} style={{ height:34 }} />
+                        </div>
+                        <div className="form-group" style={{ margin:0 }}>
+                          <label className="form-label">Color</label>
+                          <input type="text" placeholder="e.g. Midnight Black" value={newPartFields.color}
+                            onChange={e => setNewPartFields(prev => ({ ...prev, color: e.target.value }))} style={{ height:34 }} />
+                        </div>
+                        <div className="form-group" style={{ margin:0 }}>
+                          <label className="form-label">Cost $</label>
+                          <input type="number" placeholder="0.00" min="0" step="0.01" value={newPartFields.cost}
+                            onChange={e => setNewPartFields(prev => ({ ...prev, cost: e.target.value }))} style={{ height:34 }} />
+                        </div>
+                      </div>
+                      <div style={{ display:'flex', gap:6 }}>
+                        <button className="btn btn-sm btn-primary" onClick={() => createAndSelectPart('new')} disabled={!newPartFields.part_name.trim()}>Create & select</button>
+                        <button className="btn btn-sm" onClick={() => { setNewPartForm(null); setNewPartFields({ part_name:'', brand:'', color:'', cost:'' }) }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })()}
@@ -704,21 +765,61 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                             </div>
                                           )}
                                           {/* Add new requirement */}
-                                          {partOptions.length > 0 && (
-                                            <div style={{ display:'grid', gridTemplateColumns:'1fr 64px auto', gap:6, alignItems:'center' }}>
+                                          <div>
+                                            <div style={{ display:'grid', gridTemplateColumns:'1fr 64px auto', gap:6, alignItems:'center', marginBottom:6 }}>
                                               <select value={rf.part_id}
-                                                onChange={e => setReqForm(prev => ({ ...prev, [item.id]: { ...rf, part_id: e.target.value } }))}>
+                                                onChange={e => {
+                                                  if (e.target.value === '__create__') {
+                                                    setNewPartForm(item.id)
+                                                    setNewPartFields({ part_name:'', brand:'', color:'', cost:'' })
+                                                    setReqForm(prev => ({ ...prev, [item.id]: { ...rf, part_id: '' } }))
+                                                  } else {
+                                                    setReqForm(prev => ({ ...prev, [item.id]: { ...rf, part_id: e.target.value } }))
+                                                  }
+                                                }}>
                                                 <option value="">— Add a part requirement —</option>
                                                 {partOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                                                <option value="__create__">＋ Create new part…</option>
                                               </select>
                                               <input type="number" min="1" step="1" value={rf.qty}
                                                 onChange={e => setReqForm(prev => ({ ...prev, [item.id]: { ...rf, qty: e.target.value } }))}
                                                 style={{ height:34 }} />
                                               <button className="btn btn-sm btn-primary" onClick={addReq} disabled={!rf.part_id}>+ Add</button>
                                             </div>
-                                          )}
+                                            {newPartForm === item.id && (
+                                              <div style={{ padding:'12px', background:'var(--c-surface2)', borderRadius:8, border:'1px solid var(--c-border)' }}>
+                                                <div style={{ fontSize:12, fontWeight:600, marginBottom:8, color:'var(--c-brand)' }}>Create new part</div>
+                                                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 80px', gap:6, marginBottom:8 }}>
+                                                  <div className="form-group" style={{ margin:0 }}>
+                                                    <label className="form-label">Part name *</label>
+                                                    <input type="text" placeholder="e.g. Studio 3 Headband" value={newPartFields.part_name}
+                                                      onChange={e => setNewPartFields(prev => ({ ...prev, part_name: e.target.value }))} style={{ height:34 }} />
+                                                  </div>
+                                                  <div className="form-group" style={{ margin:0 }}>
+                                                    <label className="form-label">Brand</label>
+                                                    <input type="text" placeholder="e.g. Beats" value={newPartFields.brand}
+                                                      onChange={e => setNewPartFields(prev => ({ ...prev, brand: e.target.value }))} style={{ height:34 }} />
+                                                  </div>
+                                                  <div className="form-group" style={{ margin:0 }}>
+                                                    <label className="form-label">Color</label>
+                                                    <input type="text" placeholder="e.g. Midnight Black" value={newPartFields.color}
+                                                      onChange={e => setNewPartFields(prev => ({ ...prev, color: e.target.value }))} style={{ height:34 }} />
+                                                  </div>
+                                                  <div className="form-group" style={{ margin:0 }}>
+                                                    <label className="form-label">Cost $</label>
+                                                    <input type="number" placeholder="0.00" min="0" step="0.01" value={newPartFields.cost}
+                                                      onChange={e => setNewPartFields(prev => ({ ...prev, cost: e.target.value }))} style={{ height:34 }} />
+                                                  </div>
+                                                </div>
+                                                <div style={{ display:'flex', gap:6 }}>
+                                                  <button className="btn btn-sm btn-primary" onClick={() => createAndSelectPart(item.id)} disabled={!newPartFields.part_name.trim()}>Create & select</button>
+                                                  <button className="btn btn-sm" onClick={() => { setNewPartForm(null); setNewPartFields({ part_name:'', brand:'', color:'', cost:'' }) }}>Cancel</button>
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
                                           {partOptions.length === 0 && itemReqs.length === 0 && (
-                                            <div style={{ fontSize:12, color:'var(--c-text3)' }}>No available parts in inventory to add as requirements.</div>
+                                            <div style={{ fontSize:12, color:'var(--c-text3)' }}>No available parts — use "Create new part" above to add one.</div>
                                           )}
                                         </div>
                                       )}
