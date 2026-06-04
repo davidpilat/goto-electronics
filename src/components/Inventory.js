@@ -373,29 +373,34 @@ export default function Inventory({ inventory, parts = [], setSyncing }) {
       {/* Parts to Order summary */}
       {(() => {
         const activeItems = inventory.filter(i => i.status === 'In Stock' || i.status === 'Listed')
-        const shortfallMap = {}
+
+        // Step 1: accumulate total demand per part key across all active inventory
+        const demandMap = {}
         activeItems.forEach(item => {
           const template = getTemplate(item)
           if (!template) return
           const itemColor = item.color || null
           template.parts.forEach(req => {
             const matchColor = req.color || itemColor
-            const avail = parts.filter(p =>
-              p.status === 'Available' &&
-              p.part_name === req.part_name &&
-              p.brand === req.brand &&
-              (!matchColor || p.color?.toLowerCase() === matchColor?.toLowerCase())
-            ).length
-            const needed = req.qty
-            const short = Math.max(0, needed - avail)
-            if (short > 0) {
-              const key = `${req.brand||''}|||${req.part_name}|||${matchColor||''}`
-              const label = `${req.brand ? req.brand + ' ' : ''}${req.part_name}${matchColor ? ' — ' + matchColor : ''}`
-              shortfallMap[key] = { label, short: (shortfallMap[key]?.short || 0) + short, avail }
-            }
+            const key = `${req.brand||''}|||${req.part_name}|||${matchColor||''}`
+            const label = `${req.brand ? req.brand + ' ' : ''}${req.part_name}${matchColor ? ' — ' + matchColor : ''}`
+            if (!demandMap[key]) demandMap[key] = { label, req, matchColor, totalNeeded: 0 }
+            demandMap[key].totalNeeded += req.qty
           })
         })
-        const shortfalls = Object.values(shortfallMap)
+
+        // Step 2: compare total demand against available stock once per part type
+        const shortfalls = Object.values(demandMap).map(({ label, req, matchColor, totalNeeded }) => {
+          const avail = parts.filter(p =>
+            p.status === 'Available' &&
+            p.part_name === req.part_name &&
+            p.brand === req.brand &&
+            (!matchColor || p.color?.toLowerCase() === matchColor?.toLowerCase())
+          ).length
+          const short = Math.max(0, totalNeeded - avail)
+          return { label, totalNeeded, avail, short }
+        }).filter(s => s.short > 0)
+
         if (shortfalls.length === 0) return null
         return (
           <div className="card" style={{ borderLeft:'3px solid var(--c-amber)', marginBottom:'1rem' }}>
@@ -407,14 +412,16 @@ export default function Inventory({ inventory, parts = [], setSyncing }) {
               <thead>
                 <tr>
                   <th>Part needed</th>
+                  <th>Total needed</th>
                   <th>In stock</th>
-                  <th>Short by</th>
+                  <th>Order</th>
                 </tr>
               </thead>
               <tbody>
                 {shortfalls.map(s => (
                   <tr key={s.label}>
                     <td style={{ fontWeight:500 }}>🔧 {s.label}</td>
+                    <td style={{ color:'var(--c-text2)' }}>{s.totalNeeded}</td>
                     <td style={{ color: s.avail === 0 ? 'var(--c-red)' : 'var(--c-amber)', fontWeight:600 }}>{s.avail}</td>
                     <td style={{ color:'var(--c-red)', fontWeight:700 }}>−{s.short}</td>
                   </tr>
