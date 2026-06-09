@@ -438,6 +438,7 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
                   <option value="">All</option>
                   <option value="Available">Available</option>
                   <option value="Used">Used</option>
+                  <option value="Needed">Needed</option>
                 </select>
               </div>
             </div>
@@ -564,6 +565,71 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
               )
             })()}
           </div>
+
+          {/* Out of Stock / Needed parts */}
+          {(() => {
+            const neededParts = parts.filter(p => p.status === 'Needed' &&
+              (!search ||
+                p.part_name?.toLowerCase().includes(search.toLowerCase()) ||
+                p.color?.toLowerCase().includes(search.toLowerCase())
+              )
+            )
+            if (neededParts.length === 0) return null
+
+            // Group by brand + part_name + color
+            const groups = {}
+            neededParts.forEach(p => {
+              const brand = p.brand || 'No Brand'
+              const key = `${brand}|||${p.part_name}|||${p.color||'No Color'}`
+              if (!groups[key]) groups[key] = { brand, part_name: p.part_name, color: p.color || null, items: [] }
+              groups[key].items.push(p)
+            })
+
+            const byBrand = {}
+            Object.values(groups).forEach(g => {
+              if (!byBrand[g.brand]) byBrand[g.brand] = []
+              byBrand[g.brand].push(g)
+            })
+
+            return (
+              <div className="card" style={{ borderLeft:'3px solid var(--c-red)' }}>
+                <div className="card-header" style={{ marginBottom:12 }}>
+                  <span className="card-title" style={{ color:'var(--c-red)' }}>⊘ Out of Stock ({neededParts.length} needed)</span>
+                  <span style={{ fontSize:12, color:'var(--c-text3)' }}>Parts defined as requirements but not yet in inventory</span>
+                </div>
+                {Object.entries(byBrand).map(([brand, brandGroups]) => (
+                  <div key={brand} style={{ marginBottom:16 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                      <div style={{ fontSize:11, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--c-red)', padding:'2px 8px', background:'rgba(255,80,80,0.1)', borderRadius:4 }}>
+                        {brand !== 'No Brand' ? brand : 'Other'}
+                      </div>
+                      <div style={{ flex:1, height:1, background:'var(--c-border)' }} />
+                    </div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                      {brandGroups.sort((a,b) => a.part_name.localeCompare(b.part_name)).map(g => (
+                        <div key={`${g.brand}|||${g.part_name}|||${g.color}`} style={{
+                          padding:'10px 14px', borderRadius:8, minWidth:140,
+                          background:'var(--c-surface2)', border:'1px solid var(--c-red)',
+                          display:'flex', flexDirection:'column', gap:4
+                        }}>
+                          <div style={{ fontSize:12, color:'var(--c-text2)', fontWeight:500 }}>
+                            {g.part_name}
+                          </div>
+                          {g.color && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.color}</div>}
+                          <div style={{ fontSize:11, color:'var(--c-red)', fontWeight:700, marginTop:2 }}>
+                            ⊘ Out of stock
+                          </div>
+                          {g.items[0]?.cost > 0 && (
+                            <div style={{ fontSize:11, color:'var(--c-text3)' }}>Est. {fmtMoney(g.items[0].cost)} ea</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
 
           {/* Individual parts list */}
           <div className="card">
