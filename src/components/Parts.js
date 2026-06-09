@@ -576,15 +576,13 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
             )
             if (neededParts.length === 0) return null
 
-            // Group by brand + part_name + color
             const groups = {}
             neededParts.forEach(p => {
               const brand = p.brand || 'No Brand'
-              const key = `${brand}|||${p.part_name}|||${p.color||'No Color'}`
-              if (!groups[key]) groups[key] = { brand, part_name: p.part_name, color: p.color || null, items: [] }
+              const key = `${brand}|||${p.part_name}|||${p.color||''}`
+              if (!groups[key]) groups[key] = { brand, part_name: p.part_name, color: p.color||null, items: [] }
               groups[key].items.push(p)
             })
-
             const byBrand = {}
             Object.values(groups).forEach(g => {
               if (!byBrand[g.brand]) byBrand[g.brand] = []
@@ -594,8 +592,8 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
             return (
               <div className="card" style={{ borderLeft:'3px solid var(--c-red)' }}>
                 <div className="card-header" style={{ marginBottom:12 }}>
-                  <span className="card-title" style={{ color:'var(--c-red)' }}>⊘ Out of Stock ({neededParts.length} needed)</span>
-                  <span style={{ fontSize:12, color:'var(--c-text3)' }}>Parts defined as requirements but not yet in inventory</span>
+                  <span className="card-title" style={{ color:'var(--c-red)' }}>⊘ Out of Stock</span>
+                  <span style={{ fontSize:12, color:'var(--c-text3)' }}>Parts needed but not yet in inventory</span>
                 </div>
                 {Object.entries(byBrand).map(([brand, brandGroups]) => (
                   <div key={brand} style={{ marginBottom:16 }}>
@@ -606,24 +604,66 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
                       <div style={{ flex:1, height:1, background:'var(--c-border)' }} />
                     </div>
                     <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-                      {brandGroups.sort((a,b) => a.part_name.localeCompare(b.part_name)).map(g => (
-                        <div key={`${g.brand}|||${g.part_name}|||${g.color}`} style={{
-                          padding:'10px 14px', borderRadius:8, minWidth:140,
-                          background:'var(--c-surface2)', border:'1px solid var(--c-red)',
-                          display:'flex', flexDirection:'column', gap:4
-                        }}>
-                          <div style={{ fontSize:12, color:'var(--c-text2)', fontWeight:500 }}>
-                            {g.part_name}
+                      {brandGroups.sort((a,b) => a.part_name.localeCompare(b.part_name)).map(g => {
+                        const qty = g.items.length
+                        const editKey = `needed|||${g.brand}|||${g.part_name}|||${g.color||''}`
+                        const isEditing = editPartId === editKey
+                        return (
+                          <div key={editKey} style={{
+                            padding:'10px 14px', borderRadius:8, minWidth:140, flex:'0 0 auto',
+                            background:'var(--c-surface2)', border:'1px solid var(--c-red)',
+                            display:'flex', flexDirection:'column', gap:4
+                          }}>
+                            <div style={{ fontSize:12, color:'var(--c-text2)', fontWeight:500 }}>{g.part_name}</div>
+                            {g.color && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.color}</div>}
+                            {isEditing ? (
+                              <div style={{ display:'flex', gap:4, alignItems:'center', marginTop:2 }}>
+                                <input type="number" min="0" step="1"
+                                  value={editPartForm.qty}
+                                  onChange={e => setEditPartForm(prev => ({ ...prev, qty: e.target.value }))}
+                                  style={{ width:52, height:28, fontSize:13 }} />
+                                <button className="btn btn-primary btn-sm" onClick={async () => {
+                                  setSyncing(true)
+                                  const newQty = parseInt(editPartForm.qty) || 0
+                                  const diff = newQty - qty
+                                  if (diff < 0) {
+                                    const toRemove = g.items.slice(0, Math.abs(diff))
+                                    for (const p of toRemove) await supabase.from('parts').delete().eq('id', p.id)
+                                  } else if (diff > 0) {
+                                    const template = g.items[0]
+                                    await supabase.from('parts').insert(
+                                      Array.from({ length: diff }, () => ({
+                                        part_name: template.part_name,
+                                        brand: template.brand || null,
+                                        color: template.color || null,
+                                        cost: template.cost || 0,
+                                        status: 'Needed',
+                                        purchase_date: today(),
+                                      }))
+                                    )
+                                  }
+                                  setEditPartId(null)
+                                  setSyncing(false)
+                                }}>✓</button>
+                                <button className="btn btn-sm" onClick={() => setEditPartId(null)}>✕</button>
+                              </div>
+                            ) : (
+                              <div style={{ display:'flex', alignItems:'baseline', gap:6, marginTop:2 }}>
+                                <span style={{ fontSize:22, fontWeight:700, color:'var(--c-red)', lineHeight:1 }}>{qty}</span>
+                                <span style={{ fontSize:11, color:'var(--c-text3)' }}>needed</span>
+                              </div>
+                            )}
+                            {g.items[0]?.cost > 0 && <div style={{ fontSize:11, color:'var(--c-text3)' }}>Est. {fmtMoney(g.items[0].cost)} ea</div>}
+                            <div style={{ fontSize:11, color:'var(--c-red)', fontWeight:600 }}>⊘ Out of stock</div>
+                            {!isEditing && (
+                              <button className="btn btn-sm" style={{ marginTop:2, fontSize:11 }}
+                                onClick={() => { setEditPartId(editKey); setEditPartForm({ qty }) }}>
+                                Edit qty
+                              </button>
+                            )}
                           </div>
-                          {g.color && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.color}</div>}
-                          <div style={{ fontSize:11, color:'var(--c-red)', fontWeight:700, marginTop:2 }}>
-                            ⊘ Out of stock
-                          </div>
-                          {g.items[0]?.cost > 0 && (
-                            <div style={{ fontSize:11, color:'var(--c-text3)' }}>Est. {fmtMoney(g.items[0].cost)} ea</div>
-                          )}
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 ))}
