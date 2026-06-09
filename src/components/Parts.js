@@ -26,6 +26,8 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
   const [addToLotLine, setAddToLotLine] = useState({ part_name:'', color:'', quantity:'', price:'' })
   const [editPartId, setEditPartId] = useState(null)
   const [editPartForm, setEditPartForm] = useState({})
+  const [receivePartId, setReceivePartId] = useState(null)
+  const [receiveQty, setReceiveQty] = useState(1)
   // Cascading selectors for Use a Part
   const [filterBrand, setFilterBrand] = useState('')
   const [filterColor, setFilterColor] = useState('')
@@ -590,7 +592,7 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
             })
 
             return (
-              <div className="card" style={{ borderLeft:'3px solid var(--c-red)' }}>
+              <div className="card" style={{ borderLeft:'3px solid var(--c-red)', marginBottom:'1rem' }}>
                 <div className="card-header" style={{ marginBottom:12 }}>
                   <span className="card-title" style={{ color:'var(--c-red)' }}>⊘ Out of Stock</span>
                   <span style={{ fontSize:12, color:'var(--c-text3)' }}>Parts needed but not yet in inventory</span>
@@ -605,42 +607,39 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
                     </div>
                     <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
                       {brandGroups.sort((a,b) => a.part_name.localeCompare(b.part_name)).map(g => {
-                        const qty = g.items.length
+                        const needed = g.items.length
                         const editKey = `needed|||${g.brand}|||${g.part_name}|||${g.color||''}`
-                        const isEditing = editPartId === editKey
+                        const isEditingQty = editPartId === editKey
+                        const isReceiving = receivePartId === editKey
+
                         return (
                           <div key={editKey} style={{
-                            padding:'10px 14px', borderRadius:8, minWidth:140, flex:'0 0 auto',
+                            padding:'10px 14px', borderRadius:8, minWidth:150, flex:'0 0 auto',
                             background:'var(--c-surface2)', border:'1px solid var(--c-red)',
                             display:'flex', flexDirection:'column', gap:4
                           }}>
                             <div style={{ fontSize:12, color:'var(--c-text2)', fontWeight:500 }}>{g.part_name}</div>
                             {g.color && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.color}</div>}
-                            {isEditing ? (
+
+                            {/* Qty display or edit */}
+                            {isEditingQty ? (
                               <div style={{ display:'flex', gap:4, alignItems:'center', marginTop:2 }}>
-                                <input type="number" min="0" step="1"
-                                  value={editPartForm.qty}
+                                <input type="number" min="0" step="1" value={editPartForm.qty}
                                   onChange={e => setEditPartForm(prev => ({ ...prev, qty: e.target.value }))}
                                   style={{ width:52, height:28, fontSize:13 }} />
                                 <button className="btn btn-primary btn-sm" onClick={async () => {
                                   setSyncing(true)
                                   const newQty = parseInt(editPartForm.qty) || 0
-                                  const diff = newQty - qty
+                                  const diff = newQty - needed
                                   if (diff < 0) {
                                     const toRemove = g.items.slice(0, Math.abs(diff))
                                     for (const p of toRemove) await supabase.from('parts').delete().eq('id', p.id)
                                   } else if (diff > 0) {
-                                    const template = g.items[0]
-                                    await supabase.from('parts').insert(
-                                      Array.from({ length: diff }, () => ({
-                                        part_name: template.part_name,
-                                        brand: template.brand || null,
-                                        color: template.color || null,
-                                        cost: template.cost || 0,
-                                        status: 'Needed',
-                                        purchase_date: today(),
-                                      }))
-                                    )
+                                    const t = g.items[0]
+                                    await supabase.from('parts').insert(Array.from({ length: diff }, () => ({
+                                      part_name: t.part_name, brand: t.brand||null, color: t.color||null,
+                                      cost: t.cost||0, status:'Needed', purchase_date: today(),
+                                    })))
                                   }
                                   setEditPartId(null)
                                   setSyncing(false)
@@ -649,17 +648,62 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
                               </div>
                             ) : (
                               <div style={{ display:'flex', alignItems:'baseline', gap:6, marginTop:2 }}>
-                                <span style={{ fontSize:22, fontWeight:700, color:'var(--c-red)', lineHeight:1 }}>{qty}</span>
+                                <span style={{ fontSize:22, fontWeight:700, color:'var(--c-red)', lineHeight:1 }}>{needed}</span>
                                 <span style={{ fontSize:11, color:'var(--c-text3)' }}>needed</span>
                               </div>
                             )}
+
                             {g.items[0]?.cost > 0 && <div style={{ fontSize:11, color:'var(--c-text3)' }}>Est. {fmtMoney(g.items[0].cost)} ea</div>}
                             <div style={{ fontSize:11, color:'var(--c-red)', fontWeight:600 }}>⊘ Out of stock</div>
-                            {!isEditing && (
-                              <button className="btn btn-sm" style={{ marginTop:2, fontSize:11 }}
-                                onClick={() => { setEditPartId(editKey); setEditPartForm({ qty }) }}>
-                                Edit qty
-                              </button>
+
+                            {/* Receive stock inline form */}
+                            {isReceiving ? (
+                              <div style={{ marginTop:4, display:'flex', flexDirection:'column', gap:6 }}>
+                                <div style={{ fontSize:11, color:'var(--c-green)', fontWeight:600 }}>Receiving stock:</div>
+                                <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                                  <input type="number" min="1" step="1" value={receiveQty}
+                                    onChange={e => setReceiveQty(parseInt(e.target.value)||1)}
+                                    style={{ width:52, height:28, fontSize:13 }} />
+                                  <span style={{ fontSize:11, color:'var(--c-text3)' }}>units</span>
+                                </div>
+                                <div style={{ display:'flex', gap:4 }}>
+                                  <button className="btn btn-primary btn-sm" style={{ fontSize:11 }} onClick={async () => {
+                                    setSyncing(true)
+                                    const t = g.items[0]
+                                    const toConvert = Math.min(receiveQty, needed)
+                                    // Convert Needed rows to Available
+                                    const toUpdate = g.items.slice(0, toConvert)
+                                    for (const p of toUpdate) {
+                                      await supabase.from('parts').update({ status: 'Available' }).eq('id', p.id)
+                                    }
+                                    // If receiving more than needed, add extra Available rows
+                                    const extra = receiveQty - toConvert
+                                    if (extra > 0) {
+                                      await supabase.from('parts').insert(Array.from({ length: extra }, () => ({
+                                        part_name: t.part_name, brand: t.brand||null, color: t.color||null,
+                                        cost: t.cost||0, status:'Available', purchase_date: today(),
+                                      })))
+                                    }
+                                    setReceivePartId(null)
+                                    setReceiveQty(1)
+                                    setSyncing(false)
+                                  }}>✓ Receive</button>
+                                  <button className="btn btn-sm" style={{ fontSize:11 }} onClick={() => { setReceivePartId(null); setReceiveQty(1) }}>Cancel</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ display:'flex', gap:4, marginTop:2 }}>
+                                {!isEditingQty && <>
+                                  <button className="btn btn-sm" style={{ fontSize:11 }}
+                                    onClick={() => { setEditPartId(editKey); setEditPartForm({ qty: needed }) }}>
+                                    Edit qty
+                                  </button>
+                                  <button className="btn btn-sm btn-primary" style={{ fontSize:11 }}
+                                    onClick={() => { setReceivePartId(editKey); setReceiveQty(needed) }}>
+                                    + Receive
+                                  </button>
+                                </>}
+                              </div>
                             )}
                           </div>
                         )
