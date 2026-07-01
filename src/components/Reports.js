@@ -101,10 +101,12 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
 
   const avgMargin = totals.gross > 0 ? (totals.profit/totals.gross*100).toFixed(1) : 0
 
-  // Repair revenue
-  const repairRevenue = repairOrders.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
-  const repairShipping = repairOrders.reduce((s,r) => s + parseFloat(r.shipping_cost||0), 0)
-  const repairPartsCost = repairOrderParts.reduce((s,p) => s + parseFloat(p.cost||0), 0)
+  // Repair revenue — only count Complete or Shipped orders
+  const completedRepairs = repairOrders.filter(r => r.status === 'Complete' || r.status === 'Shipped')
+  const completedRepairIds = new Set(completedRepairs.map(r => r.id))
+  const repairRevenue = completedRepairs.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
+  const repairShipping = completedRepairs.reduce((s,r) => s + parseFloat(r.shipping_cost||0), 0)
+  const repairPartsCost = repairOrderParts.filter(p => completedRepairIds.has(p.repair_order_id)).reduce((s,p) => s + parseFloat(p.cost||0), 0)
   const repairProfit = repairRevenue - repairShipping - repairPartsCost
   const combinedGross = totals.gross + repairRevenue
   const combinedProfit = totals.profit + repairProfit
@@ -176,31 +178,25 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
       {/* Repair revenue breakdown */}
       {repairOrders.length > 0 && (
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:'1rem' }}>
-          {/* Repair breakdown */}
           <div className="card" style={{ margin:0 }}>
-            <div className="card-title">Repair revenue</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:0, maxWidth:420 }}>
+            <div className="card-title">Repair revenue <span style={{ fontSize:11, color:'var(--c-text3)', fontWeight:400 }}>(Complete + Shipped only)</span></div>
+            <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
               {[
                 { label:'Repair revenue', value:repairRevenue, color:'var(--c-text)', bold:true },
                 { label:'− Shipping costs', value:repairShipping, color:'var(--c-amber)' },
                 { label:'− Parts cost', value:repairPartsCost, color:'var(--c-amber)' },
                 { label:'= Repair profit', value:repairProfit, color:repairProfit>=0?'var(--c-green)':'var(--c-red)', bold:true, borderTop:true },
               ].map(row => (
-                <div key={row.label} style={{
-                  display:'flex', justifyContent:'space-between', padding:'7px 4px',
-                  borderTop: row.borderTop ? '1px solid var(--c-border)' : undefined,
-                  marginTop: row.borderTop ? 4 : undefined,
-                }}>
+                <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'7px 4px', borderTop: row.borderTop ? '1px solid var(--c-border)' : undefined, marginTop: row.borderTop ? 4 : undefined }}>
                   <span style={{ fontSize:13, color:'var(--c-text2)', fontWeight: row.bold ? 600 : 400 }}>{row.label}</span>
                   <span style={{ fontFamily:"'DM Mono',monospace", fontSize:14, fontWeight: row.bold ? 700 : 500, color:row.color }}>{fmtMoney(row.value)}</span>
                 </div>
               ))}
             </div>
           </div>
-          {/* Combined breakdown */}
           <div className="card" style={{ margin:0 }}>
             <div className="card-title">Combined totals</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:0, maxWidth:420 }}>
+            <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
               {[
                 { label:'Resale revenue', value:totals.gross, color:'var(--c-text2)' },
                 { label:'+ Repair revenue', value:repairRevenue, color:'var(--c-text2)' },
@@ -209,11 +205,7 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
                 { label:'+ Repair profit', value:repairProfit, color:'var(--c-text2)' },
                 { label:'= Combined profit', value:combinedProfit, color:combinedProfit>=0?'var(--c-green)':'var(--c-red)', bold:true, borderTop:true },
               ].map(row => (
-                <div key={row.label} style={{
-                  display:'flex', justifyContent:'space-between', padding:'7px 4px',
-                  borderTop: row.borderTop ? '1px solid var(--c-border)' : undefined,
-                  marginTop: row.borderTop ? 4 : undefined,
-                }}>
+                <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'7px 4px', borderTop: row.borderTop ? '1px solid var(--c-border)' : undefined, marginTop: row.borderTop ? 4 : undefined }}>
                   <span style={{ fontSize:13, color:'var(--c-text2)', fontWeight: row.bold ? 600 : 400 }}>{row.label}</span>
                   <span style={{ fontFamily:"'DM Mono',monospace", fontSize:14, fontWeight: row.bold ? 700 : 500, color:row.color }}>{fmtMoney(row.value)}</span>
                 </div>
