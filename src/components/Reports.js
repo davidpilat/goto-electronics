@@ -111,6 +111,40 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
   const combinedGross = totals.gross + repairRevenue
   const combinedProfit = totals.profit + repairProfit
 
+  // Year projections
+  const currentYear = new Date().getFullYear().toString()
+  const currentMonth = new Date().getMonth() // 0-indexed
+  const isCurrentYear = year === currentYear
+  const monthsElapsed = isCurrentYear ? Math.max(1, currentMonth) : 12 // months with full data
+  const monthsRemaining = isCurrentYear ? 12 - currentMonth : 0
+
+  // YTD actuals (months with data)
+  const ytdMonths = monthlyData.slice(0, isCurrentYear ? currentMonth : 12)
+  const ytdGross = ytdMonths.reduce((s,m) => s + m.gross, 0)
+  const ytdProfit = ytdMonths.reduce((s,m) => s + m.profit, 0)
+  const ytdOrders = ytdMonths.reduce((s,m) => s + m.orders, 0)
+  const ytdBizExp = ytdMonths.reduce((s,m) => s + m.bizExp, 0)
+
+  const avgMonthlyGross = monthsElapsed > 0 ? ytdGross / monthsElapsed : 0
+  const avgMonthlyProfit = monthsElapsed > 0 ? ytdProfit / monthsElapsed : 0
+  const avgMonthlyOrders = monthsElapsed > 0 ? ytdOrders / monthsElapsed : 0
+  const avgMonthlyBizExp = monthsElapsed > 0 ? ytdBizExp / monthsElapsed : 0
+
+  // Inventory potential: use avg selling price & margin from skuData
+  const inStockItems = inventory.filter(i => i.status === 'In Stock' || i.status === 'Listed')
+  const invPotentialRevenue = skuData.reduce((s,g) => s + g.potentialGrossSale, 0)
+  const invPotentialProfit = skuData.reduce((s,g) => s + g.potentialProfit, 0)
+
+  // Projected full year = YTD actuals + remaining months at avg rate
+  const projectedGross = ytdGross + (avgMonthlyGross * monthsRemaining)
+  const projectedProfit = ytdProfit + (avgMonthlyProfit * monthsRemaining)
+  const projectedOrders = Math.round(ytdOrders + (avgMonthlyOrders * monthsRemaining))
+  const projectedBizExp = ytdBizExp + (avgMonthlyBizExp * monthsRemaining)
+
+  // Full year including inventory sell-through
+  const projectedGrossWithInv = projectedGross + invPotentialRevenue
+  const projectedProfitWithInv = projectedProfit + invPotentialProfit
+
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null
     return (
@@ -212,6 +246,60 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Year projections */}
+      {isCurrentYear && ytdGross > 0 && (
+        <div className="card" style={{ marginBottom:'1rem' }}>
+          <div className="card-header" style={{ marginBottom:12 }}>
+            <span className="card-title">📈 {year} Projections</span>
+            <span style={{ fontSize:12, color:'var(--c-text3)' }}>Based on {monthsElapsed} month{monthsElapsed !== 1 ? 's' : ''} of actuals · {monthsRemaining} remaining</span>
+          </div>
+
+          {/* Projection stat cards */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:16 }}>
+            {[
+              { label:'Projected revenue', ytd: ytdGross, projected: projectedGross, color:'var(--c-brand)' },
+              { label:'Projected profit', ytd: ytdProfit, projected: projectedProfit, color: projectedProfit >= 0 ? 'var(--c-green)' : 'var(--c-red)' },
+              { label:'Projected orders', ytd: ytdOrders, projected: projectedOrders, isMono:true, color:'var(--c-text)' },
+              { label:'Projected expenses', ytd: ytdBizExp, projected: projectedBizExp, color:'var(--c-amber)' },
+            ].map(s => (
+              <div key={s.label} className="stat-card">
+                <div className="stat-label">{s.label}</div>
+                <div className="stat-value" style={{ fontSize:18, color:s.color }}>
+                  {typeof s.projected === 'number' && !s.isMono ? fmtMoney(s.projected) : Math.round(s.projected)}
+                </div>
+                <div className="stat-sub" style={{ fontSize:11, color:'var(--c-text3)' }}>
+                  YTD: {s.isMono ? Math.round(s.ytd) : fmtMoney(s.ytd)} · avg {fmtMoney(s.isMono ? s.ytd/monthsElapsed : s.ytd/monthsElapsed)}/mo
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Inventory sell-through potential */}
+          {inStockItems.length > 0 && (
+            <div style={{ borderTop:'1px solid var(--c-border)', paddingTop:12 }}>
+              <div style={{ fontSize:12, fontWeight:600, color:'var(--c-text2)', marginBottom:8 }}>
+                + If all {inStockItems.length} in-stock items sell at historical avg prices:
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
+                {[
+                  { label:'Additional revenue', value: invPotentialRevenue, color:'var(--c-brand)' },
+                  { label:'Additional profit', value: invPotentialProfit, color: invPotentialProfit >= 0 ? 'var(--c-green)' : 'var(--c-red)' },
+                  { label:'Total projected profit', value: projectedProfitWithInv, color: projectedProfitWithInv >= 0 ? 'var(--c-green)' : 'var(--c-red)' },
+                ].map(s => (
+                  <div key={s.label} style={{ padding:'10px 14px', background:'var(--c-surface2)', borderRadius:8, border:'1px solid var(--c-border)' }}>
+                    <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:4 }}>{s.label}</div>
+                    <div style={{ fontSize:18, fontWeight:700, fontFamily:"'DM Mono',monospace", color:s.color }}>{fmtMoney(s.value)}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:8 }}>
+                ⚠ Inventory projections use historical avg selling price per SKU. Items without sales history are excluded.
+              </div>
+            </div>
+          )}
         </div>
       )}
 
