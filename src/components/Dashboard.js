@@ -26,6 +26,40 @@ export default function Dashboard({ orders, inventory, expenses }) {
   const filteredOrders = orders.filter(o => filterDate(o.sale_date))
   const filteredExpenses = expenses.filter(e => filterDate(e.expense_date))
 
+  // Previous period for comparison
+  const filterPrev = (dateStr) => {
+    if (!dateStr) return false
+    const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number)
+    if (period === 'month') {
+      const prevMonth = today.getMonth() === 0 ? 11 : today.getMonth() - 1
+      const prevYear = today.getMonth() === 0 ? today.getFullYear() - 1 : today.getFullYear()
+      return m - 1 === prevMonth && y === prevYear
+    }
+    if (period === 'quarter') {
+      const prevQ = Math.floor(today.getMonth() / 3) - 1
+      if (prevQ < 0) return Math.floor((m - 1) / 3) === 3 && y === today.getFullYear() - 1
+      return Math.floor((m - 1) / 3) === prevQ && y === today.getFullYear()
+    }
+    return y === today.getFullYear() - 1
+  }
+  const prevOrders = orders.filter(o => filterPrev(o.sale_date))
+  const prevExpenses = expenses.filter(e => filterPrev(e.expense_date))
+  const prevGross = prevOrders.reduce((s,o) => s + parseFloat(o.gross_sale||0), 0)
+  const prevFees = prevOrders.reduce((s,o) => s + parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0), 0)
+  const prevShipping = prevOrders.reduce((s,o) => s + parseFloat(o.shipping_cost||0), 0)
+  const prevItemCost = prevOrders.reduce((s,o) => s + parseFloat(o.item_cost||0), 0)
+  const prevBizExp = prevExpenses.reduce((s,e) => s + parseFloat(e.amount||0), 0)
+  const prevNet = prevGross - prevFees - prevShipping
+  const prevProfit = prevNet - prevItemCost - prevBizExp
+
+  const momPct = (curr, prev) => {
+    if (prev === 0) return curr > 0 ? '+∞' : null
+    const pct = ((curr - prev) / Math.abs(prev) * 100).toFixed(1)
+    return (curr >= prev ? '+' : '') + pct + '%'
+  }
+  const momColor = (curr, prev) => curr >= prev ? 'var(--c-green)' : 'var(--c-red)'
+  const prevLabel = period === 'month' ? 'vs last month' : period === 'quarter' ? 'vs last quarter' : 'vs last year'
+
   const grossRevenue = filteredOrders.reduce((s, o) => s + parseFloat(o.gross_sale||0), 0)
   const totalFees = filteredOrders.reduce((s, o) => s + parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0), 0)
   const totalShipping = filteredOrders.reduce((s, o) => s + parseFloat(o.shipping_cost||0), 0)
@@ -99,22 +133,40 @@ export default function Dashboard({ orders, inventory, expenses }) {
         <div className="stat-card">
           <div className="stat-label">Gross revenue</div>
           <div className="stat-value stat-brand">{fmtMoney(grossRevenue)}</div>
-          <div className="stat-sub">{filteredOrders.length} orders · {periodLabel}</div>
+          <div className="stat-sub" style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <span>{filteredOrders.length} orders · {periodLabel}</span>
+            {momPct(grossRevenue, prevGross) && <span style={{ fontWeight:600, color: momColor(grossRevenue, prevGross) }}>{momPct(grossRevenue, prevGross)}</span>}
+          </div>
+          {prevGross > 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevGross)}</div>}
         </div>
         <div className="stat-card">
           <div className="stat-label">Net revenue</div>
           <div className="stat-value">{fmtMoney(netRevenue)}</div>
-          <div className="stat-sub">After fees & shipping</div>
+          <div className="stat-sub" style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <span>After fees & shipping</span>
+            {momPct(netRevenue, prevNet) && <span style={{ fontWeight:600, color: momColor(netRevenue, prevNet) }}>{momPct(netRevenue, prevNet)}</span>}
+          </div>
+          {prevNet > 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevNet)}</div>}
         </div>
         <div className="stat-card">
           <div className="stat-label">Total profit</div>
           <div className={`stat-value ${totalProfit >= 0 ? 'stat-green' : 'stat-red'}`}>{fmtMoney(totalProfit)}</div>
-          <div className="stat-sub">{margin}% margin</div>
+          <div className="stat-sub" style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <span>{margin}% margin</span>
+            {momPct(totalProfit, prevProfit) && <span style={{ fontWeight:600, color: momColor(totalProfit, prevProfit) }}>{momPct(totalProfit, prevProfit)}</span>}
+          </div>
+          {prevProfit !== 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevProfit)}</div>}
         </div>
         <div className="stat-card">
           <div className="stat-label">Avg order value</div>
           <div className="stat-value">{fmtMoney(avgOrderValue)}</div>
-          <div className="stat-sub">Per sale</div>
+          <div className="stat-sub" style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <span>Per sale</span>
+            {prevOrders.length > 0 && momPct(avgOrderValue, prevGross/prevOrders.length) && (
+              <span style={{ fontWeight:600, color: momColor(avgOrderValue, prevGross/prevOrders.length) }}>{momPct(avgOrderValue, prevGross/prevOrders.length)}</span>
+            )}
+          </div>
+          {prevOrders.length > 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevGross/prevOrders.length)} · {prevOrders.length} orders</div>}
         </div>
       </div>
 
