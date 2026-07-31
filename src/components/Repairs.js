@@ -9,17 +9,6 @@ const STATUS_COLORS = {
   'Shipped':     { bg:'rgba(168,85,247,0.12)', color:'#c084fc', border:'#a855f7' },
 }
 const today = () => new Date().toISOString().slice(0, 10)
-
-function warrantyStatus(deliveredDate) {
-  if (!deliveredDate) return null
-  const delivered = new Date(deliveredDate)
-  const expiry = new Date(delivered)
-  expiry.setDate(expiry.getDate() + 90)
-  const now = new Date()
-  const daysLeft = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24))
-  const underWarranty = now <= expiry
-  return { underWarranty, daysLeft, expiry: expiry.toISOString().slice(0, 10) }
-}
 const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })
 
 function StatusBadge({ status }) {
@@ -43,7 +32,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
     order_number:'', customer_name:'', customer_email:'',
     make:'', model:'', serial_number:'',
     repair_price:'', shipping_cost:'', selling_fee:'', return_shipping:'', notes:'',
-    received_date: today(), status:'Received', delivered_date:''
+    received_date: today(), status:'Received', delivered_date:'', tracking_number:''
   }
   const [form, setForm] = useState(emptyForm)
   const [adding, setAdding] = useState(false)
@@ -75,6 +64,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       notes: form.notes.trim() || null,
       received_date: form.received_date,
       delivered_date: form.delivered_date || null,
+      tracking_number: form.tracking_number.trim() || null,
       status: form.status,
     }).select()
     setAdding(false); setSyncing(false)
@@ -116,11 +106,10 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
     setSelectedPartId('')
   }
 
-  const updateStatus = async (id, status, order) => {
+  const updateStatus = async (id, status) => {
     setSyncing(true)
     const updates = { status }
     if (status === 'Shipped') updates.shipped_date = today()
-    if (status === 'Shipped' && !order?.delivered_date) updates.delivered_date = today()
     await supabase.from('repair_orders').update(updates).eq('id', id)
     setSyncing(false)
   }
@@ -148,6 +137,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       notes: editForm.notes?.trim() || null,
       received_date: editForm.received_date,
       delivered_date: editForm.delivered_date || null,
+      tracking_number: editForm.tracking_number?.trim() || null,
       status: editForm.status,
     }).eq('id', editId)
     setEditId(null)
@@ -223,14 +213,14 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                   <input type="date" value={form.received_date} onChange={e => set('received_date', e.target.value)} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Delivered date</label>
-                  <input type="date" value={form.delivered_date} onChange={e => set('delivered_date', e.target.value)} />
-                </div>
-                <div className="form-group">
                   <label className="form-label">Status</label>
                   <select value={form.status} onChange={e => set('status', e.target.value)}>
                     {STATUSES.map(s => <option key={s}>{s}</option>)}
                   </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Repair price $</label>
+                  <input type="number" placeholder="0.00" min="0" step="0.01" value={form.repair_price} onChange={e => set('repair_price', e.target.value)} />
                 </div>
               </div>
               <div className="form-grid form-grid-2" style={{ marginBottom:10 }}>
@@ -273,6 +263,16 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                 <div className="form-group">
                   <label className="form-label">Selling / platform fee $</label>
                   <input type="number" placeholder="0.00" min="0" step="0.01" value={form.selling_fee} onChange={e => set('selling_fee', e.target.value)} />
+                </div>
+              </div>
+              <div className="form-grid form-grid-2" style={{ marginBottom:12 }}>
+                <div className="form-group">
+                  <label className="form-label">Delivered date</label>
+                  <input type="date" value={form.delivered_date} onChange={e => set('delivered_date', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Return tracking number</label>
+                  <input type="text" placeholder="e.g. 1Z999AA10123456784" value={form.tracking_number} onChange={e => set('tracking_number', e.target.value)} />
                 </div>
               </div>
               <div className="form-group" style={{ marginBottom:12 }}>
@@ -439,6 +439,10 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                             <label className="form-label">Delivered date</label>
                             <input type="date" value={editForm.delivered_date||''} onChange={e => setEditForm(p=>({...p,delivered_date:e.target.value}))} />
                           </div>
+                          <div className="form-group" style={{ margin:0 }}>
+                            <label className="form-label">Return tracking #</label>
+                            <input type="text" placeholder="Tracking number" value={editForm.tracking_number||''} onChange={e => setEditForm(p=>({...p,tracking_number:e.target.value}))} />
+                          </div>
                         </div>
                         <div className="form-group" style={{ margin:'0 0 10px' }}>
                           <label className="form-label">Notes</label>
@@ -458,26 +462,38 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                               <span style={{ fontWeight:600, fontSize:14 }}>{r.customer_name || '—'}</span>
                               {r.order_number && <span style={{ fontSize:12, color:'var(--c-text3)', fontFamily:"'DM Mono',monospace" }}>{r.order_number}</span>}
                               <StatusBadge status={r.status} />
-                              {(() => {
-                                const w = warrantyStatus(r.delivered_date)
-                                if (!w) return null
-                                return w.underWarranty ? (
-                                  <span style={{ fontSize:11, fontWeight:600, padding:'2px 7px', borderRadius:4, background:'rgba(34,197,94,0.12)', color:'var(--c-green)', border:'1px solid var(--c-green)' }}>
-                                    🛡 {w.daysLeft}d left
-                                  </span>
-                                ) : (
-                                  <span style={{ fontSize:11, fontWeight:600, padding:'2px 7px', borderRadius:4, background:'var(--c-surface2)', color:'var(--c-text3)', border:'1px solid var(--c-border)' }}>
-                                    Warranty expired
-                                  </span>
-                                )
-                              })()}
                             </div>
                             <div style={{ fontSize:12, color:'var(--c-text2)' }}>
                               {[r.make, r.model].filter(Boolean).join(' ')}
                               {r.serial_number && <span style={{ marginLeft:8, fontFamily:"'DM Mono',monospace", color:'var(--c-text3)' }}>{r.serial_number}</span>}
                             </div>
                             {r.customer_email && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{r.customer_email}</div>}
-                            {r.delivered_date && <div style={{ fontSize:11, color:'var(--c-text3)' }}>Delivered: {r.delivered_date} · Warranty expires: {warrantyStatus(r.delivered_date)?.expiry}</div>}
+                            {(r.delivered_date || r.tracking_number) && (
+                              <div style={{ fontSize:11, color:'var(--c-text3)', display:'flex', gap:12, flexWrap:'wrap' }}>
+                                {r.delivered_date && <span>Delivered: {r.delivered_date}</span>}
+                                {r.tracking_number && (
+                                  <span style={{ fontFamily:"'DM Mono',monospace" }}>📦 {r.tracking_number}</span>
+                                )}
+                              </div>
+                            )}
+                            {(() => {
+                              if (!r.delivered_date) return null
+                              const delivered = new Date(r.delivered_date)
+                              const expiry = new Date(delivered)
+                              expiry.setDate(expiry.getDate() + 90)
+                              const now = new Date()
+                              const daysLeft = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24))
+                              const underWarranty = now <= expiry
+                              return underWarranty ? (
+                                <span style={{ fontSize:11, fontWeight:600, padding:'2px 7px', borderRadius:4, background:'rgba(34,197,94,0.12)', color:'var(--c-green)', border:'1px solid var(--c-green)', display:'inline-block', marginTop:2 }}>
+                                  🛡 Under warranty · {daysLeft}d left (expires {expiry.toISOString().slice(0,10)})
+                                </span>
+                              ) : (
+                                <span style={{ fontSize:11, fontWeight:600, padding:'2px 7px', borderRadius:4, background:'var(--c-surface2)', color:'var(--c-text3)', border:'1px solid var(--c-border)', display:'inline-block', marginTop:2 }}>
+                                  Warranty expired {expiry.toISOString().slice(0,10)}
+                                </span>
+                              )
+                            })()}
                           </div>
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4, flexShrink:0 }}>
                             <div style={{ display:'flex', gap:6 }}>
@@ -510,7 +526,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                             if (i > currentIdx + 1) return null
                             return (
                               <button key={s} className="btn btn-sm btn-primary" style={{ fontSize:11 }}
-                                onClick={() => updateStatus(r.id, s, r)}>
+                                onClick={() => updateStatus(r.id, s)}>
                                 → {s}
                               </button>
                             )
