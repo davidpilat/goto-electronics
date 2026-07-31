@@ -31,7 +31,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
   const emptyForm = {
     order_number:'', customer_name:'', customer_email:'',
     make:'', model:'', serial_number:'',
-    repair_price:'', shipping_cost:'', notes:'',
+    repair_price:'', shipping_cost:'', selling_fee:'', return_shipping:'', notes:'',
     received_date: today(), status:'Received'
   }
   const [form, setForm] = useState(emptyForm)
@@ -59,6 +59,8 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       serial_number: form.serial_number.trim() || null,
       repair_price: parseFloat(form.repair_price) || 0,
       shipping_cost: parseFloat(form.shipping_cost) || 0,
+      selling_fee: parseFloat(form.selling_fee) || 0,
+      return_shipping: parseFloat(form.return_shipping) || 0,
       notes: form.notes.trim() || null,
       received_date: form.received_date,
       status: form.status,
@@ -128,6 +130,8 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       serial_number: editForm.serial_number?.trim() || null,
       repair_price: parseFloat(editForm.repair_price) || 0,
       shipping_cost: parseFloat(editForm.shipping_cost) || 0,
+      selling_fee: parseFloat(editForm.selling_fee) || 0,
+      return_shipping: parseFloat(editForm.return_shipping) || 0,
       notes: editForm.notes?.trim() || null,
       received_date: editForm.received_date,
       status: editForm.status,
@@ -157,9 +161,10 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
 
   // Summary stats
   const totalRevenue = repairOrders.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
-  const totalShipping = repairOrders.reduce((s,r) => s + parseFloat(r.shipping_cost||0), 0)
+  const totalShipping = repairOrders.reduce((s,r) => s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0), 0)
+  const totalSellingFees = repairOrders.reduce((s,r) => s + parseFloat(r.selling_fee||0), 0)
   const totalPartsCost = repairOrderParts.reduce((s,p) => s + parseFloat(p.cost||0), 0)
-  const totalProfit = totalRevenue - totalShipping - totalPartsCost
+  const totalProfit = totalRevenue - totalShipping - totalSellingFees - totalPartsCost
   const activeCount = repairOrders.filter(r => r.status !== 'Shipped').length
 
   return (
@@ -238,8 +243,22 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                   <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={form.serial_number} onChange={e => set('serial_number', e.target.value)} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Shipping cost $</label>
+                  <label className="form-label">Repair price $</label>
+                  <input type="number" placeholder="0.00" min="0" step="0.01" value={form.repair_price} onChange={e => set('repair_price', e.target.value)} />
+                </div>
+              </div>
+              <div className="form-grid form-grid-3" style={{ marginBottom:10 }}>
+                <div className="form-group">
+                  <label className="form-label">Inbound shipping cost $</label>
                   <input type="number" placeholder="0.00" min="0" step="0.01" value={form.shipping_cost} onChange={e => set('shipping_cost', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Return shipping cost $</label>
+                  <input type="number" placeholder="0.00" min="0" step="0.01" value={form.return_shipping} onChange={e => set('return_shipping', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Selling / platform fee $</label>
+                  <input type="number" placeholder="0.00" min="0" step="0.01" value={form.selling_fee} onChange={e => set('selling_fee', e.target.value)} />
                 </div>
               </div>
               <div className="form-group" style={{ marginBottom:12 }}>
@@ -339,7 +358,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
             : filtered.map(r => {
                 const orderParts = repairOrderParts.filter(p => p.repair_order_id === r.id)
                 const partsCost = orderParts.reduce((s,p) => s+parseFloat(p.cost||0), 0)
-                const profit = parseFloat(r.repair_price||0) - parseFloat(r.shipping_cost||0) - partsCost
+                const profit = parseFloat(r.repair_price||0) - parseFloat(r.shipping_cost||0) - parseFloat(r.return_shipping||0) - parseFloat(r.selling_fee||0) - partsCost
                 const isExpanded = expandedId === r.id
                 const isEditing = editId === r.id
 
@@ -347,7 +366,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                   <div key={r.id} style={{ borderBottom:'1px solid var(--c-border)', padding:'12px 4px' }}>
                     {isEditing ? (
                       <div>
-                        <div className="form-grid form-grid-4" style={{ marginBottom:8 }}>
+                        <div className="form-grid form-grid-3" style={{ marginBottom:8 }}>
                           <div className="form-group" style={{ margin:0 }}>
                             <label className="form-label">Order #</label>
                             <input type="text" value={editForm.order_number||''} onChange={e => setEditForm(p=>({...p,order_number:e.target.value}))} />
@@ -363,8 +382,16 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                             <input type="number" value={editForm.repair_price||''} onChange={e => setEditForm(p=>({...p,repair_price:e.target.value}))} />
                           </div>
                           <div className="form-group" style={{ margin:0 }}>
-                            <label className="form-label">Shipping cost $</label>
+                            <label className="form-label">Inbound shipping $</label>
                             <input type="number" value={editForm.shipping_cost||''} onChange={e => setEditForm(p=>({...p,shipping_cost:e.target.value}))} />
+                          </div>
+                          <div className="form-group" style={{ margin:0 }}>
+                            <label className="form-label">Return shipping $</label>
+                            <input type="number" value={editForm.return_shipping||''} onChange={e => setEditForm(p=>({...p,return_shipping:e.target.value}))} />
+                          </div>
+                          <div className="form-group" style={{ margin:0 }}>
+                            <label className="form-label">Selling fee $</label>
+                            <input type="number" value={editForm.selling_fee||''} onChange={e => setEditForm(p=>({...p,selling_fee:e.target.value}))} />
                           </div>
                         </div>
                         <div className="form-grid form-grid-2" style={{ marginBottom:8 }}>
