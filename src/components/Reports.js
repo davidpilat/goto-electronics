@@ -106,8 +106,10 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
   const completedRepairIds = new Set(completedRepairs.map(r => r.id))
   const repairRevenue = completedRepairs.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
   const repairShipping = completedRepairs.reduce((s,r) => s + parseFloat(r.shipping_cost||0), 0)
+  const repairReturnShipping = completedRepairs.reduce((s,r) => s + parseFloat(r.return_shipping||0), 0)
+  const repairSellingFees = completedRepairs.reduce((s,r) => s + parseFloat(r.selling_fee||0), 0)
   const repairPartsCost = repairOrderParts.filter(p => completedRepairIds.has(p.repair_order_id)).reduce((s,p) => s + parseFloat(p.cost||0), 0)
-  const repairProfit = repairRevenue - repairShipping - repairPartsCost
+  const repairProfit = repairRevenue - repairShipping - repairReturnShipping - repairSellingFees - repairPartsCost
   const combinedGross = totals.gross + repairRevenue
   const combinedProfit = totals.profit + repairProfit
 
@@ -217,7 +219,9 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
             <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
               {[
                 { label:'Repair revenue', value:repairRevenue, color:'var(--c-text)', bold:true },
-                { label:'− Shipping costs', value:repairShipping, color:'var(--c-amber)' },
+                { label:'− Inbound shipping', value:repairShipping, color:'var(--c-amber)' },
+                { label:'− Return shipping', value:repairReturnShipping, color:'var(--c-amber)' },
+                { label:'− Selling fees', value:repairSellingFees, color:'var(--c-amber)' },
                 { label:'− Parts cost', value:repairPartsCost, color:'var(--c-amber)' },
                 { label:'= Repair profit', value:repairProfit, color:repairProfit>=0?'var(--c-green)':'var(--c-red)', bold:true, borderTop:true },
               ].map(row => (
