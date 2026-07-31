@@ -7,7 +7,7 @@ const PLATFORMS = ['eBay','Facebook Marketplace','Facebook','Amazon','Craigslist
 const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtK = n => { const v = parseFloat(n)||0; return v >= 1000 ? '$'+(v/1000).toFixed(1)+'k' : '$'+v.toFixed(0) }
 
-export default function Dashboard({ orders, inventory, expenses }) {
+export default function Dashboard({ orders, inventory, expenses, repairOrders = [], repairOrderParts = [] }) {
   const today = new Date()
   const [period, setPeriod] = useState('month')
 
@@ -73,11 +73,45 @@ export default function Dashboard({ orders, inventory, expenses }) {
   const inStock = inventory.filter(i => i.status === 'In Stock').length
   const inventoryValue = inventory.filter(i => i.status === 'In Stock').reduce((s, i) => s + parseFloat(i.purchase_cost||0) + parseFloat(i.parts_cost||0), 0)
 
+  // Repair totals — completed/shipped only, filtered by period
+  const filteredRepairs = repairOrders.filter(r =>
+    (r.status === 'Complete' || r.status === 'Shipped') && filterDate(r.received_date)
+  )
+  const repairRevenue = filteredRepairs.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
+  const repairCosts = filteredRepairs.reduce((s,r) =>
+    s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0) + parseFloat(r.selling_fee||0), 0)
+  const filteredRepairIds = new Set(filteredRepairs.map(r => r.id))
+  const repairPartsCost = repairOrderParts.filter(p => filteredRepairIds.has(p.repair_order_id)).reduce((s,p) => s + parseFloat(p.cost||0), 0)
+  const repairProfit = repairRevenue - repairCosts - repairPartsCost
+
+  // Previous period repairs
+  const prevRepairs = repairOrders.filter(r =>
+    (r.status === 'Complete' || r.status === 'Shipped') && filterPrev(r.received_date)
+  )
+  const prevRepairRevenue = prevRepairs.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
+  const prevRepairCosts = prevRepairs.reduce((s,r) =>
+    s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0) + parseFloat(r.selling_fee||0), 0)
+  const prevRepairIds = new Set(prevRepairs.map(r => r.id))
+  const prevRepairPartsCost = repairOrderParts.filter(p => prevRepairIds.has(p.repair_order_id)).reduce((s,p) => s + parseFloat(p.cost||0), 0)
+  const prevRepairProfit = prevRepairRevenue - prevRepairCosts - prevRepairPartsCost
+
+  // Combined totals
+  const combinedGross = grossRevenue + repairRevenue
+  const combinedProfit = totalProfit + repairProfit
+  const combinedMargin = combinedGross > 0 ? ((combinedProfit / combinedGross) * 100).toFixed(1) : 0
+  const prevCombinedGross = prevGross + prevRepairRevenue
+  const prevCombinedProfit = prevProfit + prevRepairProfit
+
   // Monthly trend for current year
   const monthlyData = MONTHS.map((name, i) => {
     const monthOrders = orders.filter(o => {
       if (!o.sale_date) return false
       const [y, m] = o.sale_date.slice(0, 10).split('-').map(Number)
+      return m - 1 === i && y === today.getFullYear()
+    })
+    const monthRepairs = repairOrders.filter(r => {
+      if (!r.received_date || (r.status !== 'Complete' && r.status !== 'Shipped')) return false
+      const [y, m] = r.received_date.slice(0, 10).split('-').map(Number)
       return m - 1 === i && y === today.getFullYear()
     })
     const monthExpenses = expenses.filter(e => {
@@ -86,23 +120,28 @@ export default function Dashboard({ orders, inventory, expenses }) {
       return m - 1 === i && y === today.getFullYear()
     })
     const gross = monthOrders.reduce((s, o) => s + parseFloat(o.gross_sale||0), 0)
+    const rRepair = monthRepairs.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
     const fees = monthOrders.reduce((s, o) => s + parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0) + parseFloat(o.shipping_cost||0), 0)
+    const repairCosts = monthRepairs.reduce((s,r) => s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0) + parseFloat(r.selling_fee||0), 0)
     const cost = monthOrders.reduce((s, o) => s + parseFloat(o.item_cost||0), 0)
     const exp = monthExpenses.reduce((s, e) => s + parseFloat(e.amount||0), 0)
-    const profit = gross - fees - cost - exp
-    return { name, revenue: Math.round(gross), profit: Math.round(profit) }
+    const profit = gross + rRepair - fees - repairCosts - cost - exp
+    return { name, revenue: Math.round(gross + rRepair), profit: Math.round(profit) }
   })
 
-  // Platform breakdown — built from actual order data, not hardcoded list
-  const platformData = Object.entries(
-    filteredOrders.reduce((acc, o) => {
-      const p = o.platform || 'Other'
-      if (!acc[p]) acc[p] = { revenue: 0, count: 0 }
-      acc[p].revenue += parseFloat(o.gross_sale||0)
-      acc[p].count += 1
-      return acc
-    }, {})
-  ).map(([name, d]) => ({ name, revenue: d.revenue, count: d.count }))
+  // Platform breakdown — resale orders + repairs as "Repair Services"
+  const platformAcc = filteredOrders.reduce((acc, o) => {
+    const p = o.platform || 'Other'
+    if (!acc[p]) acc[p] = { revenue: 0, count: 0, type: 'resale' }
+    acc[p].revenue += parseFloat(o.gross_sale||0)
+    acc[p].count += 1
+    return acc
+  }, {})
+  if (filteredRepairs.length > 0) {
+    platformAcc['Repair Services'] = { revenue: repairRevenue, count: filteredRepairs.length, type: 'repair' }
+  }
+  const platformData = Object.entries(platformAcc)
+    .map(([name, d]) => ({ name, revenue: d.revenue, count: d.count, type: d.type }))
     .sort((a, b) => b.revenue - a.revenue)
 
   const PLATFORM_COLORS = ['#0ea5e9','#16a34a','#d97706','#7c3aed','#dc2626','#6b7280']
@@ -132,12 +171,12 @@ export default function Dashboard({ orders, inventory, expenses }) {
       <div className="stat-grid">
         <div className="stat-card">
           <div className="stat-label">Gross revenue</div>
-          <div className="stat-value stat-brand">{fmtMoney(grossRevenue)}</div>
+          <div className="stat-value stat-brand">{fmtMoney(combinedGross)}</div>
           <div className="stat-sub" style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <span>{filteredOrders.length} orders · {periodLabel}</span>
-            {momPct(grossRevenue, prevGross) && <span style={{ fontWeight:600, color: momColor(grossRevenue, prevGross) }}>{momPct(grossRevenue, prevGross)}</span>}
+            <span>{filteredOrders.length} orders{filteredRepairs.length > 0 ? ` · ${filteredRepairs.length} repairs` : ''} · {periodLabel}</span>
+            {momPct(combinedGross, prevCombinedGross) && <span style={{ fontWeight:600, color: momColor(combinedGross, prevCombinedGross) }}>{momPct(combinedGross, prevCombinedGross)}</span>}
           </div>
-          {prevGross > 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevGross)}</div>}
+          {prevCombinedGross > 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevCombinedGross)}{repairRevenue > 0 ? ` · repairs: ${fmtMoney(repairRevenue)}` : ''}</div>}
         </div>
         <div className="stat-card">
           <div className="stat-label">Net revenue</div>
@@ -150,18 +189,18 @@ export default function Dashboard({ orders, inventory, expenses }) {
         </div>
         <div className="stat-card">
           <div className="stat-label">Total profit</div>
-          <div className={`stat-value ${totalProfit >= 0 ? 'stat-green' : 'stat-red'}`}>{fmtMoney(totalProfit)}</div>
+          <div className={`stat-value ${combinedProfit >= 0 ? 'stat-green' : 'stat-red'}`}>{fmtMoney(combinedProfit)}</div>
           <div className="stat-sub" style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <span>{margin}% margin</span>
-            {momPct(totalProfit, prevProfit) && <span style={{ fontWeight:600, color: momColor(totalProfit, prevProfit) }}>{momPct(totalProfit, prevProfit)}</span>}
+            <span>{combinedMargin}% margin</span>
+            {momPct(combinedProfit, prevCombinedProfit) && <span style={{ fontWeight:600, color: momColor(combinedProfit, prevCombinedProfit) }}>{momPct(combinedProfit, prevCombinedProfit)}</span>}
           </div>
-          {prevProfit !== 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevProfit)}</div>}
+          {prevCombinedProfit !== 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevCombinedProfit)}</div>}
         </div>
         <div className="stat-card">
           <div className="stat-label">Avg order value</div>
           <div className="stat-value">{fmtMoney(avgOrderValue)}</div>
           <div className="stat-sub" style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <span>Per sale</span>
+            <span>Per resale</span>
             {prevOrders.length > 0 && momPct(avgOrderValue, prevGross/prevOrders.length) && (
               <span style={{ fontWeight:600, color: momColor(avgOrderValue, prevGross/prevOrders.length) }}>{momPct(avgOrderValue, prevGross/prevOrders.length)}</span>
             )}
@@ -212,9 +251,9 @@ export default function Dashboard({ orders, inventory, expenses }) {
             ? <div className="empty"><div className="empty-icon">📦</div>No sales yet</div>
             : platformData.map((p, i) => (
               <div key={p.name} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:'1px solid var(--c-border)', fontSize:13 }}>
-                <div style={{ width:8, height:8, borderRadius:2, background:PLATFORM_COLORS[i%PLATFORM_COLORS.length], flexShrink:0 }} />
-                <span style={{ flex:1 }}>{p.name}</span>
-                <span style={{ color:'var(--c-text2)', fontSize:12 }}>{p.count} sales</span>
+                <div style={{ width:8, height:8, borderRadius:2, background: p.type === 'repair' ? 'var(--c-purple)' : PLATFORM_COLORS[i%PLATFORM_COLORS.length], flexShrink:0 }} />
+                <span style={{ flex:1 }}>{p.type === 'repair' ? '🔧 ' : ''}{p.name}</span>
+                <span style={{ color:'var(--c-text2)', fontSize:12 }}>{p.count} {p.type === 'repair' ? 'repairs' : 'sales'}</span>
                 <span className="mono" style={{ fontWeight:500 }}>{fmtMoney(p.revenue)}</span>
               </div>
             ))
