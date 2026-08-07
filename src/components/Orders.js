@@ -84,7 +84,7 @@ function normalizeOrderRow(row) {
   }
 }
 
-export default function Orders({ orders, inventory, parts = [], setSyncing }) {
+export default function Orders({ orders, inventory, parts = [], repairReqs = [], setSyncing }) {
   const [form, setForm] = useState({
     sale_date: today(), order_number: '', item_name: '', inventory_id: '',
     serial_number: '', serialSearch: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '',
@@ -484,9 +484,56 @@ export default function Orders({ orders, inventory, parts = [], setSyncing }) {
         {/* Parts used on this order */}
         {parts.filter(p => p.status === 'Available').length > 0 && (() => {
           const availableParts = parts.filter(p => p.status === 'Available')
-          // Build unique part options: brand + part_name + color
-          const partOptions = []
+
+          // If an inventory item is selected, filter parts by its repair requirements first
+          const selectedItem = form.inventory_id ? inventory.find(i => i.id === form.inventory_id) : null
+          const itemReqs = selectedItem ? repairReqs.filter(r => r.inventory_id === selectedItem.id) : []
+
+          // Build part options — prioritize parts matching this item's requirements
           const seen = new Set()
+          const matchedOptions = []
+          const otherOptions = []
+
+          // Parts that match this item's repair requirements
+          if (itemReqs.length > 0) {
+            itemReqs.forEach(req => {
+              const matches = availableParts.filter(p =>
+                p.part_name === req.part_name &&
+                (req.brand ? p.brand === req.brand : true) &&
+                (req.color ? p.color?.toLowerCase() === req.color.toLowerCase() : true)
+              )
+              matches.forEach(p => {
+                const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
+                if (!seen.has(key)) {
+                  seen.add(key)
+                  const qty = availableParts.filter(pp =>
+                    pp.part_name === p.part_name && pp.brand === p.brand && pp.color === p.color
+                  ).length
+                  matchedOptions.push({ id: p.id, label: `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''} (${qty} avail · ${fmtMoney(p.cost)} ea)` })
+                }
+              })
+            })
+          }
+
+          // Also try matching by model name keywords from item name
+          if (selectedItem && matchedOptions.length === 0) {
+            const keywords = (selectedItem.name || selectedItem.sku || '').toLowerCase().split(' ').filter(w => w.length > 2)
+            availableParts.forEach(p => {
+              const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
+              if (!seen.has(key)) {
+                const partText = `${p.brand||''} ${p.part_name}`.toLowerCase()
+                if (keywords.some(kw => partText.includes(kw))) {
+                  seen.add(key)
+                  const qty = availableParts.filter(pp =>
+                    pp.part_name === p.part_name && pp.brand === p.brand && pp.color === p.color
+                  ).length
+                  matchedOptions.push({ id: p.id, label: `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''} (${qty} avail · ${fmtMoney(p.cost)} ea)` })
+                }
+              }
+            })
+          }
+
+          // Remaining parts (all others)
           availableParts.forEach(p => {
             const key = `${p.brand||''}|||${p.part_name}|||${p.color||''}`
             if (!seen.has(key)) {
@@ -494,20 +541,34 @@ export default function Orders({ orders, inventory, parts = [], setSyncing }) {
               const qty = availableParts.filter(pp =>
                 pp.part_name === p.part_name && pp.brand === p.brand && pp.color === p.color
               ).length
-              partOptions.push({ id: p.id, label: `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''} (${qty} avail · ${fmtMoney(p.cost)} ea)`, qty })
+              otherOptions.push({ id: p.id, label: `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''} (${qty} avail · ${fmtMoney(p.cost)} ea)` })
             }
           })
+
           return (
             <div style={{ marginBottom:12 }}>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
-                <label className="form-label" style={{ margin:0 }}>Parts used (optional)</label>
+                <label className="form-label" style={{ margin:0 }}>
+                  Parts used (optional)
+                  {matchedOptions.length > 0 && <span style={{ fontWeight:400, color:'var(--c-brand)', marginLeft:6 }}>· {matchedOptions.length} matched for this model</span>}
+                </label>
                 <button className="btn btn-sm" onClick={() => setPartsUsed(prev => [...prev, { part_id: '', qty: 1 }])}>+ Add part</button>
               </div>
               {partsUsed.map((line, i) => (
                 <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 70px 28px', gap:6, marginBottom:6 }}>
                   <select value={line.part_id} onChange={e => setPartsUsed(prev => prev.map((l,idx) => idx===i ? {...l, part_id: e.target.value} : l))}>
                     <option value="">— Select a part —</option>
-                    {partOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                    {matchedOptions.length > 0 && (
+                      <optgroup label={selectedItem ? `✓ Parts for ${selectedItem.name}` : '✓ Matched parts'}>
+                        {matchedOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                      </optgroup>
+                    )}
+                    {otherOptions.length > 0 && (
+                      <optgroup label="All other parts">
+                        {otherOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                      </optgroup>
+                    )}
+                    {matchedOptions.length === 0 && otherOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
                   </select>
                   <input type="number" min="1" step="1" placeholder="Qty" value={line.qty}
                     onChange={e => setPartsUsed(prev => prev.map((l,idx) => idx===i ? {...l, qty: parseInt(e.target.value)||1} : l))}

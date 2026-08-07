@@ -94,7 +94,7 @@ export default function App() {
 
       <main className="app-main">
         {tab === 'Dashboard' && <Dashboard orders={orders} inventory={inventory} expenses={expenses} repairOrders={repairOrders} repairOrderParts={repairOrderParts} />}
-        {tab === 'Orders' && <Orders orders={orders} inventory={inventory} parts={parts} setSyncing={setSyncing} />}
+        {tab === 'Orders' && <Orders orders={orders} inventory={inventory} parts={parts} repairReqs={repairReqs} setSyncing={setSyncing} />}
         {tab === 'Inventory' && <Inventory inventory={inventory} parts={parts} repairReqs={repairReqs} setSyncing={setSyncing} />}
         {tab === 'Parts' && <Parts parts={parts} partLots={partLots} inventory={inventory} setSyncing={setSyncing} />}
         {tab === 'Repairs' && <Repairs repairOrders={repairOrders} repairOrderParts={repairOrderParts} parts={parts} setSyncing={setSyncing} />}
