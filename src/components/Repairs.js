@@ -10,6 +10,20 @@ const STATUS_COLORS = {
   'Shipped':     { bg:'rgba(168,85,247,0.12)', color:'#c084fc', border:'#a855f7' },
 }
 const today = () => new Date().toISOString().slice(0, 10)
+
+function generateOrderNumber(customerName) {
+  const initials = (customerName || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => w[0].toUpperCase())
+    .join('')
+    .slice(0, 3) || 'XX'
+  const now = new Date()
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const dd = String(now.getDate()).padStart(2, '0')
+  return `RPR-${initials}-${mm}${dd}`
+}
 const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })
 
 function StatusBadge({ status }) {
@@ -237,8 +251,8 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
             <>
               <div className="form-grid form-grid-4" style={{ marginBottom:10 }}>
                 <div className="form-group">
-                  <label className="form-label">Order number</label>
-                  <input type="text" placeholder="e.g. RPR-001" value={form.order_number} onChange={e => set('order_number', e.target.value)} />
+                  <label className="form-label">Order number <span style={{ fontWeight:400, color:'var(--c-text3)', fontSize:10 }}>(auto-generated from name)</span></label>
+                  <input type="text" placeholder="Enter customer name first" value={form.order_number} onChange={e => set('order_number', e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Status</label>
@@ -258,7 +272,13 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
               <div className="form-grid form-grid-2" style={{ marginBottom:10 }}>
                 <div className="form-group">
                   <label className="form-label">Customer name</label>
-                  <input type="text" placeholder="e.g. John Smith" value={form.customer_name} onChange={e => set('customer_name', e.target.value)} />
+                  <input type="text" placeholder="e.g. John Smith" value={form.customer_name} onChange={e => {
+                    set('customer_name', e.target.value)
+                    // Auto-generate order number if not manually overridden
+                    if (!form.order_number || form.order_number.startsWith('RPR-')) {
+                      set('order_number', generateOrderNumber(e.target.value))
+                    }
+                  }} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Customer email</label>
