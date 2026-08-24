@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-const STATUSES = ['Received', 'In Progress', 'Complete', 'Shipped']
+const STATUSES = ['Form Submitted', 'Received', 'In Progress', 'Complete', 'Shipped']
 const STATUS_COLORS = {
+  'Form Submitted':{ bg:'rgba(251,191,36,0.12)', color:'#fbbf24', border:'#f59e0b' },
   'Received':    { bg:'var(--c-surface2)', color:'var(--c-text2)', border:'var(--c-border)' },
   'In Progress': { bg:'rgba(59,130,246,0.12)', color:'#60a5fa', border:'#3b82f6' },
   'Complete':    { bg:'rgba(34,197,94,0.12)', color:'var(--c-green)', border:'var(--c-green)' },
@@ -32,7 +33,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
     order_number:'', customer_name:'', customer_email:'',
     make:'', model:'', serial_number:'',
     repair_price:'', shipping_cost:'', selling_fee:'', return_shipping:'', notes:'',
-    received_date: today(), status:'Received', delivered_date:'', tracking_number:''
+    received_date: today(), status:'Form Submitted', delivered_date:'', tracking_number:'', incoming_tracking:''
   }
   const [form, setForm] = useState(emptyForm)
   const [adding, setAdding] = useState(false)
@@ -65,6 +66,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       received_date: form.received_date,
       delivered_date: form.delivered_date || null,
       tracking_number: form.tracking_number.trim() || null,
+      incoming_tracking: form.incoming_tracking.trim() || null,
       status: form.status,
     }).select()
     setAdding(false); setSyncing(false)
@@ -138,6 +140,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       received_date: editForm.received_date,
       delivered_date: editForm.delivered_date || null,
       tracking_number: editForm.tracking_number?.trim() || null,
+      incoming_tracking: editForm.incoming_tracking?.trim() || null,
       status: editForm.status,
     }).eq('id', editId)
     setEditId(null)
@@ -209,18 +212,18 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                   <input type="text" placeholder="e.g. RPR-001" value={form.order_number} onChange={e => set('order_number', e.target.value)} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Received date</label>
-                  <input type="date" value={form.received_date} onChange={e => set('received_date', e.target.value)} />
-                </div>
-                <div className="form-group">
                   <label className="form-label">Status</label>
                   <select value={form.status} onChange={e => set('status', e.target.value)}>
                     {STATUSES.map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Repair price $</label>
-                  <input type="number" placeholder="0.00" min="0" step="0.01" value={form.repair_price} onChange={e => set('repair_price', e.target.value)} />
+                  <label className="form-label">Received date</label>
+                  <input type="date" value={form.received_date} onChange={e => set('received_date', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Delivered date</label>
+                  <input type="date" value={form.delivered_date} onChange={e => set('delivered_date', e.target.value)} />
                 </div>
               </div>
               <div className="form-grid form-grid-2" style={{ marginBottom:10 }}>
@@ -267,8 +270,8 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
               </div>
               <div className="form-grid form-grid-2" style={{ marginBottom:12 }}>
                 <div className="form-group">
-                  <label className="form-label">Delivered date</label>
-                  <input type="date" value={form.delivered_date} onChange={e => set('delivered_date', e.target.value)} />
+                  <label className="form-label">Incoming tracking number</label>
+                  <input type="text" placeholder="e.g. 1Z999AA10123456784" value={form.incoming_tracking} onChange={e => set('incoming_tracking', e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Return tracking number</label>
@@ -440,8 +443,12 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                             <input type="date" value={editForm.delivered_date||''} onChange={e => setEditForm(p=>({...p,delivered_date:e.target.value}))} />
                           </div>
                           <div className="form-group" style={{ margin:0 }}>
+                            <label className="form-label">Incoming tracking #</label>
+                            <input type="text" placeholder="Incoming tracking" value={editForm.incoming_tracking||''} onChange={e => setEditForm(p=>({...p,incoming_tracking:e.target.value}))} />
+                          </div>
+                          <div className="form-group" style={{ margin:0 }}>
                             <label className="form-label">Return tracking #</label>
-                            <input type="text" placeholder="Tracking number" value={editForm.tracking_number||''} onChange={e => setEditForm(p=>({...p,tracking_number:e.target.value}))} />
+                            <input type="text" placeholder="Return tracking" value={editForm.tracking_number||''} onChange={e => setEditForm(p=>({...p,tracking_number:e.target.value}))} />
                           </div>
                         </div>
                         <div className="form-group" style={{ margin:'0 0 10px' }}>
@@ -468,9 +475,12 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                               {r.serial_number && <span style={{ marginLeft:8, fontFamily:"'DM Mono',monospace", color:'var(--c-text3)' }}>{r.serial_number}</span>}
                             </div>
                             {r.customer_email && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{r.customer_email}</div>}
-                            {(r.delivered_date || r.tracking_number) && (
+                            {(r.delivered_date || r.tracking_number || r.incoming_tracking) && (
                               <div style={{ fontSize:11, color:'var(--c-text3)', display:'flex', gap:12, flexWrap:'wrap' }}>
                                 {r.delivered_date && <span>Delivered: {r.delivered_date}</span>}
+                                {r.incoming_tracking && (
+                                  <span style={{ fontFamily:"'DM Mono',monospace" }}>📥 {r.incoming_tracking}</span>
+                                )}
                                 {r.tracking_number && (
                                   <span style={{ fontFamily:"'DM Mono',monospace" }}>📦 {r.tracking_number}</span>
                                 )}
