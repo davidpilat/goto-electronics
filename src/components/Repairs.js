@@ -158,7 +158,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
   const colors = [...new Set(afterName.map(p => p.color).filter(Boolean))].sort()
 
   const filteredActive = repairOrders.filter(r => {
-    if (r.status === 'Complete') return false
+    if (r.status === 'Complete' || r.status === 'Shipped') return false
     const matchStatus = !filterStatus || r.status === filterStatus
     const matchSearch = !search ||
       r.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -168,17 +168,25 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       r.serial_number?.toLowerCase().includes(search.toLowerCase())
     return matchStatus && matchSearch
   })
-  const filteredCompleted = repairOrders.filter(r => {
+  const filteredAwaiting = repairOrders.filter(r => {
     if (r.status !== 'Complete') return false
-    const matchSearch = !search ||
+    return !search ||
       r.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
       r.order_number?.toLowerCase().includes(search.toLowerCase()) ||
       r.make?.toLowerCase().includes(search.toLowerCase()) ||
       r.model?.toLowerCase().includes(search.toLowerCase()) ||
       r.serial_number?.toLowerCase().includes(search.toLowerCase())
-    return matchSearch
   })
-  const filtered = activeTab === 'completed' ? filteredCompleted : filteredActive
+  const filteredCompleted = repairOrders.filter(r => {
+    if (r.status !== 'Shipped') return false
+    return !search ||
+      r.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
+      r.order_number?.toLowerCase().includes(search.toLowerCase()) ||
+      r.make?.toLowerCase().includes(search.toLowerCase()) ||
+      r.model?.toLowerCase().includes(search.toLowerCase()) ||
+      r.serial_number?.toLowerCase().includes(search.toLowerCase())
+  })
+  const filtered = activeTab === 'awaiting' ? filteredAwaiting : activeTab === 'completed' ? filteredCompleted : filteredActive
 
   // Summary stats
   const totalRevenue = repairOrders.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
@@ -210,8 +218,11 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
         <button className={`tab-btn ${activeTab==='orders'?'active':''}`} onClick={() => setActiveTab('orders')}>
           Active ({filteredActive.length})
         </button>
+        <button className={`tab-btn ${activeTab==='awaiting'?'active':''}`} onClick={() => setActiveTab('awaiting')}>
+          Awaiting Payment ({filteredAwaiting.length})
+        </button>
         <button className={`tab-btn ${activeTab==='completed'?'active':''}`} onClick={() => setActiveTab('completed')}>
-          Awaiting Payment ({repairOrders.filter(r => r.status === 'Complete').length})
+          Completed ({filteredCompleted.length})
         </button>
         <button className={`tab-btn ${activeTab==='add'?'active':''}`} onClick={() => setActiveTab('add')}>
           New Repair
@@ -379,25 +390,25 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       )}
 
       {/* Repair Orders list */}
-      {(activeTab === 'orders' || activeTab === 'completed') && (
+      {(activeTab === 'orders' || activeTab === 'awaiting' || activeTab === 'completed') && (
         <div className="card">
           <div className="card-header">
             <span className="card-title">
-              {activeTab === 'completed' ? `${filtered.length} awaiting payment` : `${filtered.length} active repairs`}
+              {activeTab === 'awaiting' ? `${filtered.length} awaiting payment` : activeTab === 'completed' ? `${filtered.length} completed repairs` : `${filtered.length} active repairs`}
             </span>
             <div style={{ display:'flex', gap:8 }}>
               <input type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} style={{ height:32, width:140, fontSize:13 }} />
               {activeTab === 'orders' && (
                 <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ height:32, width:120, fontSize:12 }}>
                   <option value="">All statuses</option>
-                  {STATUSES.filter(s => s !== 'Complete').map(s => <option key={s}>{s}</option>)}
+                  {STATUSES.filter(s => s !== 'Complete' && s !== 'Shipped').map(s => <option key={s}>{s}</option>)}
                 </select>
               )}
             </div>
           </div>
 
           {filtered.length === 0
-            ? <div className="empty"><div className="empty-icon">🔧</div>{activeTab === 'completed' ? 'No repairs awaiting payment.' : 'No active repair orders.'}</div>
+            ? <div className="empty"><div className="empty-icon">🔧</div>{activeTab === 'awaiting' ? 'No repairs awaiting payment.' : activeTab === 'completed' ? 'No completed repairs yet.' : 'No active repair orders.'}</div>
             : filtered.map(r => {
                 const orderParts = repairOrderParts.filter(p => p.repair_order_id === r.id)
                 const partsCost = orderParts.reduce((s,p) => s+parseFloat(p.cost||0), 0)
