@@ -32,7 +32,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
   const emptyForm = {
     order_number:'', customer_name:'', customer_email:'',
     make:'', model:'', serial_number:'',
-    repair_price:'', shipping_cost:'', selling_fee:'', return_shipping:'', notes:'',
+    repair_price:'', quoted_price:'', shipping_cost:'', selling_fee:'', return_shipping:'', notes:'',
     received_date: today(), status:'Form Submitted', delivered_date:'', tracking_number:'', incoming_tracking:''
   }
   const [form, setForm] = useState(emptyForm)
@@ -59,6 +59,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       model: form.model.trim() || null,
       serial_number: form.serial_number.trim() || null,
       repair_price: parseFloat(form.repair_price) || 0,
+      quoted_price: parseFloat(form.quoted_price) || 0,
       shipping_cost: parseFloat(form.shipping_cost) || 0,
       selling_fee: parseFloat(form.selling_fee) || 0,
       return_shipping: parseFloat(form.return_shipping) || 0,
@@ -133,6 +134,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       model: editForm.model?.trim() || null,
       serial_number: editForm.serial_number?.trim() || null,
       repair_price: parseFloat(editForm.repair_price) || 0,
+      quoted_price: parseFloat(editForm.quoted_price) || 0,
       shipping_cost: parseFloat(editForm.shipping_cost) || 0,
       selling_fee: parseFloat(editForm.selling_fee) || 0,
       return_shipping: parseFloat(editForm.return_shipping) || 0,
@@ -250,7 +252,11 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                   <input type="text" placeholder="e.g. DNPXC2XY0J4D" value={form.serial_number} onChange={e => set('serial_number', e.target.value)} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Repair price $</label>
+                  <label className="form-label">Quoted price $</label>
+                  <input type="number" placeholder="0.00" min="0" step="0.01" value={form.quoted_price} onChange={e => set('quoted_price', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Repair price $ <span style={{ fontSize:10, color:'var(--c-text3)', fontWeight:400 }}>(counts toward revenue)</span></label>
                   <input type="number" placeholder="0.00" min="0" step="0.01" value={form.repair_price} onChange={e => set('repair_price', e.target.value)} />
                 </div>
               </div>
@@ -395,6 +401,10 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                             </select>
                           </div>
                           <div className="form-group" style={{ margin:0 }}>
+                            <label className="form-label">Quoted price $</label>
+                            <input type="number" value={editForm.quoted_price||''} onChange={e => setEditForm(p=>({...p,quoted_price:e.target.value}))} />
+                          </div>
+                          <div className="form-group" style={{ margin:0 }}>
                             <label className="form-label">Repair price $</label>
                             <input type="number" value={editForm.repair_price||''} onChange={e => setEditForm(p=>({...p,repair_price:e.target.value}))} />
                           </div>
@@ -506,12 +516,23 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                             })()}
                           </div>
                           <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4, flexShrink:0 }}>
-                            <div style={{ display:'flex', gap:6 }}>
-                              <span style={{ fontFamily:"'DM Mono',monospace", fontSize:14, fontWeight:600, color:'var(--c-green)' }}>{fmtMoney(r.repair_price)}</span>
-                              <span style={{ fontSize:12, color: profit >= 0 ? 'var(--c-green)' : 'var(--c-red)', fontFamily:"'DM Mono',monospace" }}>
-                                ({profit >= 0 ? '+' : ''}{fmtMoney(profit)})
-                              </span>
+                            <div style={{ display:'flex', gap:6, alignItems:'baseline' }}>
+                              {parseFloat(r.repair_price||0) > 0 ? (
+                                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:14, fontWeight:600, color:'var(--c-green)' }}>{fmtMoney(r.repair_price)}</span>
+                              ) : parseFloat(r.quoted_price||0) > 0 ? (
+                                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:500, color:'var(--c-amber)' }}>
+                                  Quoted {fmtMoney(r.quoted_price)}
+                                </span>
+                              ) : null}
+                              {parseFloat(r.repair_price||0) > 0 && (
+                                <span style={{ fontSize:12, color: profit >= 0 ? 'var(--c-green)' : 'var(--c-red)', fontFamily:"'DM Mono',monospace" }}>
+                                  ({profit >= 0 ? '+' : ''}{fmtMoney(profit)})
+                                </span>
+                              )}
                             </div>
+                            {parseFloat(r.quoted_price||0) > 0 && parseFloat(r.repair_price||0) > 0 && (
+                              <div style={{ fontSize:11, color:'var(--c-text3)' }}>Quoted: {fmtMoney(r.quoted_price)}</div>
+                            )}
                             <div style={{ fontSize:11, color:'var(--c-text3)' }}>{r.received_date}</div>
                           </div>
                         </div>
