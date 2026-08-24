@@ -36,7 +36,7 @@ function StatusBadge({ status }) {
   )
 }
 
-export default function Repairs({ repairOrders, repairOrderParts, parts = [], setSyncing }) {
+export default function Repairs({ repairOrders, repairOrderParts, parts = [], setSyncing, onRefresh }) {
   const [activeTab, setActiveTab] = useState('orders')
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
@@ -85,6 +85,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       status: form.status,
     }).select()
     setAdding(false); setSyncing(false)
+    onRefresh?.()
     if (inserted?.[0]) {
       setNewOrderId(inserted[0].id)
       setPartLines([])
@@ -113,6 +114,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
     setSelectedPartId('')
     setPartFilter({ brand:'', part_name:'', color:'' })
     setSyncing(false)
+    onRefresh?.()
   }
 
   const finishOrder = () => {
@@ -129,6 +131,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
     if (status === 'Shipped') updates.shipped_date = today()
     await supabase.from('repair_orders').update(updates).eq('id', id)
     setSyncing(false)
+    onRefresh?.()
   }
 
   const deleteOrder = async (id) => {
@@ -136,6 +139,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
     setSyncing(true)
     await supabase.from('repair_orders').delete().eq('id', id)
     setSyncing(false)
+    onRefresh?.()
   }
 
   const saveEdit = async () => {
@@ -161,6 +165,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
     }).eq('id', editId)
     setEditId(null)
     setSyncing(false)
+    onRefresh?.()
   }
 
   // Cascading part filter
