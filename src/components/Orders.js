@@ -84,7 +84,7 @@ function normalizeOrderRow(row) {
   }
 }
 
-export default function Orders({ orders, inventory, parts = [], repairReqs = [], setSyncing }) {
+export default function Orders({ orders, inventory, parts = [], repairReqs = [], setSyncing, onRefresh }) {
   const [form, setForm] = useState({
     sale_date: today(), order_number: '', item_name: '', inventory_id: '',
     serial_number: '', serialSearch: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '',
@@ -145,6 +145,7 @@ export default function Orders({ orders, inventory, parts = [], repairReqs = [],
     }
     setEditId(null)
     setSyncing(false)
+    onRefresh?.()
   }
 
   const handleFileSelect = (e) => {
@@ -190,6 +191,7 @@ export default function Orders({ orders, inventory, parts = [], repairReqs = [],
 
     setImportPreview(null)
     setImporting(false); setSyncing(false)
+    onRefresh?.()
     const snCount = serialNumbers.length
     alert('Imported ' + importPreview.length + ' orders successfully!' + (snCount > 0 ? ' Marked ' + snCount + ' inventory item(s) as Sold.' : ''))
   }
@@ -251,6 +253,7 @@ export default function Orders({ orders, inventory, parts = [], repairReqs = [],
     setForm({ sale_date: today(), order_number: '', item_name: '', inventory_id: '', serial_number: '', serialSearch: '', color: '', platform: 'eBay', gross_sale: '', selling_fee: '', ad_fee: '', shipping_cost: '', item_cost: '', notes: '' })
     setPartsUsed([{ part_id: '', qty: 1 }])
     setAdding(false); setSyncing(false)
+    onRefresh?.()
   }
 
   const deleteOrder = async (id) => {
@@ -258,6 +261,7 @@ export default function Orders({ orders, inventory, parts = [], repairReqs = [],
     setSyncing(true)
     await supabase.from('orders').delete().eq('id', id)
     setSyncing(false)
+    onRefresh?.()
   }
 
   const markReturn = async (o) => {
@@ -277,6 +281,7 @@ export default function Orders({ orders, inventory, parts = [], repairReqs = [],
         .eq('status', 'Sold')
     }
     setSyncing(false)
+    onRefresh?.()
   }
 
   // Build serial number → SKU lookup from inventory
