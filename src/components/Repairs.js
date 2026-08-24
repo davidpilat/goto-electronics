@@ -209,6 +209,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
 
   // Summary stats
   const totalRevenue = repairOrders.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
+  const totalQuoted = repairOrders.filter(r => r.status !== 'Shipped').reduce((s,r) => s + parseFloat(r.quoted_price||0), 0)
   const totalShipping = repairOrders.reduce((s,r) => s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0), 0)
   const totalSellingFees = repairOrders.reduce((s,r) => s + parseFloat(r.selling_fee||0), 0)
   const totalPartsCost = repairOrderParts.reduce((s,p) => s + parseFloat(p.cost||0), 0)
@@ -221,8 +222,8 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:'1rem' }}>
         {[
           { label:'Active repairs', value: activeCount, mono:false },
+          { label:'Quoted (pending)', value: fmtMoney(totalQuoted), mono:true, color:'var(--c-amber)' },
           { label:'Total revenue', value: fmtMoney(totalRevenue), mono:true },
-          { label:'Parts cost', value: fmtMoney(totalPartsCost), mono:true },
           { label:'Net profit', value: fmtMoney(totalProfit), mono:true, color: totalProfit >= 0 ? 'var(--c-green)' : 'var(--c-red)' },
         ].map(s => (
           <div key={s.label} className="stat-card">
