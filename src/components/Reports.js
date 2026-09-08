@@ -97,7 +97,11 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
   }), { gross:0, net:0, fees:0, itemCost:0, bizExp:0, profit:0, orders:0 })
 
   const totalInventoryCost = inventory.reduce((s, i) => s + parseFloat(i.purchase_cost||0), 0)
-  const realizedProfit = totals.gross - totals.fees - totals.bizExp - totalInventoryCost
+  const totalPartsCost = parts.filter(p => p.status !== 'Needed').reduce((s, p) => s + parseFloat(p.cost||0), 0)
+  const totalSuppliesCost = expenses.filter(e => e.category === 'Supplies' || e.category === 'Shipping Supplies').reduce((s, e) => s + parseFloat(e.amount||0), 0)
+  const totalSellingFees = orders.reduce((s, o) => s + parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0), 0)
+  const totalShippingCost = orders.reduce((s, o) => s + parseFloat(o.shipping_cost||0), 0)
+  const realizedProfit = totals.gross - totalSellingFees - totalShippingCost - totalInventoryCost - totalPartsCost - totalSuppliesCost
 
   const avgMargin = totals.gross > 0 ? (totals.profit/totals.gross*100).toFixed(1) : 0
 
@@ -167,13 +171,13 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
         </select>
       </div>
 
-      {/* Annual summary */}
+      {/* Top-line stat cards */}
       <div className="stat-grid" style={{ marginBottom:'1rem' }}>
         {[
-          { label:'Gross revenue', value:fmtMoney(totals.gross), color:'var(--c-brand)' },
-          { label:'Net revenue', value:fmtMoney(totals.net), color:'var(--c-text)' },
-          { label:'Total profit', value:fmtMoney(totals.profit), color:totals.profit>=0?'var(--c-green)':'var(--c-red)' },
+          { label:'Total sales', value:fmtMoney(totals.gross), color:'var(--c-brand)' },
+          { label:'Realized profit', value:fmtMoney(realizedProfit), color:realizedProfit>=0?'var(--c-green)':'var(--c-red)' },
           { label:'Avg margin', value:`${avgMargin}%`, color:parseFloat(avgMargin)>=20?'var(--c-green)':'var(--c-amber)' },
+          { label:'Total orders', value:totals.orders, color:'var(--c-text)' },
         ].map(m => (
           <div key={m.label} className="stat-card">
             <div className="stat-label">{m.label}</div>
@@ -182,166 +186,175 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
         ))}
       </div>
 
-      {/* Profit breakdown */}
+      {/* Cost & Revenue breakdown */}
       <div className="card" style={{ marginBottom:'1rem' }}>
-        <div className="card-title">Profit breakdown</div>
-        <div style={{ display:'flex', flexDirection:'column', gap:0, maxWidth:420 }}>
-          {[
-            { label:'Gross revenue', value:totals.gross, color:'var(--c-text)', sign:null },
-            { label:'− Platform fees + shipping', value:totals.fees, color:'var(--c-amber)', sign:'−' },
-            { label:'= Net revenue', value:totals.net, color:'var(--c-text)', sign:null, bold:true, borderTop:true },
-            { label:'− Item costs (COGS)', value:totals.itemCost, color:'var(--c-amber)', sign:'−' },
-            { label:'− Business expenses', value:totals.bizExp, color:'var(--c-amber)', sign:'−' },
-            { label:'= Total profit', value:totals.profit, color:totals.profit>=0?'var(--c-green)':'var(--c-red)', sign:null, bold:true, borderTop:true },
-            { label:'− Total inventory purchased', value:totalInventoryCost, color:'var(--c-amber)', sign:'−' },
-            { label:'= Realized profit', value:realizedProfit, color:realizedProfit>=0?'var(--c-green)':'var(--c-red)', sign:null, bold:true, borderTop:true },
-          ].map(row => (
-            <div key={row.label} style={{
-              display:'flex', justifyContent:'space-between', alignItems:'center',
-              padding:'8px 4px',
-              borderTop: row.borderTop ? '1px solid var(--c-border)' : undefined,
-              marginTop: row.borderTop ? 4 : undefined,
-            }}>
-              <span style={{ fontSize:13, color:'var(--c-text2)', fontWeight: row.bold ? 600 : 400 }}>{row.label}</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", fontSize:14, fontWeight: row.bold ? 700 : 500, color:row.color }}>
-                {fmtMoney(row.value)}
-              </span>
+        <div className="card-title">Cost & Revenue breakdown</div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
+          {/* Left: Revenue waterfall */}
+          <div>
+            <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--c-text3)', marginBottom:8 }}>Sales</div>
+            {[
+              { label:'Total sales (gross)', value:totals.gross, color:'var(--c-text)', bold:true },
+              { label:'− Selling fees', value:totalSellingFees, color:'var(--c-amber)' },
+              { label:'− Shipping costs', value:totalShippingCost, color:'var(--c-amber)' },
+            ].map(row => (
+              <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderBottom:'1px solid var(--c-border)' }}>
+                <span style={{ fontSize:13, color:'var(--c-text2)', fontWeight:row.bold?600:400 }}>{row.label}</span>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:row.bold?700:500, color:row.color }}>{fmtMoney(row.value)}</span>
+              </div>
+            ))}
+            <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--c-text3)', margin:'14px 0 8px' }}>Costs</div>
+            {[
+              { label:'Total inventory cost', value:totalInventoryCost, color:'var(--c-amber)' },
+              { label:'Total parts cost', value:totalPartsCost, color:'var(--c-amber)' },
+              { label:'Total supplies cost', value:totalSuppliesCost, color:'var(--c-amber)' },
+            ].map(row => (
+              <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderBottom:'1px solid var(--c-border)' }}>
+                <span style={{ fontSize:13, color:'var(--c-text2)' }}>{row.label}</span>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:500, color:row.color }}>{fmtMoney(row.value)}</span>
+              </div>
+            ))}
+          </div>
+          {/* Right: Realized profit summary */}
+          <div style={{ display:'flex', flexDirection:'column', justifyContent:'center', gap:0 }}>
+            <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--c-text3)', marginBottom:8 }}>Realized Profit</div>
+            {[
+              { label:'Total sales', value:totals.gross, color:'var(--c-text)' },
+              { label:'− Selling fees', value:totalSellingFees, color:'var(--c-amber)' },
+              { label:'− Shipping costs', value:totalShippingCost, color:'var(--c-amber)' },
+              { label:'− Inventory cost', value:totalInventoryCost, color:'var(--c-amber)' },
+              { label:'− Parts cost', value:totalPartsCost, color:'var(--c-amber)' },
+              { label:'− Supplies cost', value:totalSuppliesCost, color:'var(--c-amber)' },
+            ].map(row => (
+              <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottom:'1px solid var(--c-border)' }}>
+                <span style={{ fontSize:12, color:'var(--c-text2)' }}>{row.label}</span>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, color:row.color }}>{fmtMoney(row.value)}</span>
+              </div>
+            ))}
+            <div style={{ display:'flex', justifyContent:'space-between', padding:'10px 0 4px', marginTop:4, borderTop:'2px solid var(--c-border)' }}>
+              <span style={{ fontSize:14, fontWeight:700, color:'var(--c-text)' }}>= Realized profit</span>
+              <span style={{ fontFamily:"'DM Mono',monospace", fontSize:16, fontWeight:700, color:realizedProfit>=0?'var(--c-green)':'var(--c-red)' }}>{fmtMoney(realizedProfit)}</span>
             </div>
-          ))}
+          </div>
         </div>
       </div>
 
-      {/* Repair revenue breakdown */}
+      {/* Repair revenue + Combined totals */}
       {repairOrders.length > 0 && (
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:'1rem' }}>
           <div className="card" style={{ margin:0 }}>
             <div className="card-title">Repair revenue <span style={{ fontSize:11, color:'var(--c-text3)', fontWeight:400 }}>(Complete + Shipped only)</span></div>
-            <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
-              {[
-                { label:'Repair revenue', value:repairRevenue, color:'var(--c-text)', bold:true },
-                { label:'− Inbound shipping', value:repairShipping, color:'var(--c-amber)' },
-                { label:'− Return shipping', value:repairReturnShipping, color:'var(--c-amber)' },
-                { label:'− Selling fees', value:repairSellingFees, color:'var(--c-amber)' },
-                { label:'− Parts cost', value:repairPartsCost, color:'var(--c-amber)' },
-                { label:'= Repair profit', value:repairProfit, color:repairProfit>=0?'var(--c-green)':'var(--c-red)', bold:true, borderTop:true },
-              ].map(row => (
-                <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'7px 4px', borderTop: row.borderTop ? '1px solid var(--c-border)' : undefined, marginTop: row.borderTop ? 4 : undefined }}>
-                  <span style={{ fontSize:13, color:'var(--c-text2)', fontWeight: row.bold ? 600 : 400 }}>{row.label}</span>
-                  <span style={{ fontFamily:"'DM Mono',monospace", fontSize:14, fontWeight: row.bold ? 700 : 500, color:row.color }}>{fmtMoney(row.value)}</span>
-                </div>
-              ))}
-            </div>
+            {[
+              { label:'Repair revenue', value:repairRevenue, color:'var(--c-text)', bold:true },
+              { label:'− Inbound shipping', value:repairShipping, color:'var(--c-amber)' },
+              { label:'− Return shipping', value:repairReturnShipping, color:'var(--c-amber)' },
+              { label:'− Selling fees', value:repairSellingFees, color:'var(--c-amber)' },
+              { label:'− Parts cost', value:repairPartsCost, color:'var(--c-amber)' },
+              { label:'= Repair profit', value:repairProfit, color:repairProfit>=0?'var(--c-green)':'var(--c-red)', bold:true, borderTop:true },
+            ].map(row => (
+              <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'7px 4px', borderTop:row.borderTop?'1px solid var(--c-border)':undefined, marginTop:row.borderTop?4:undefined }}>
+                <span style={{ fontSize:13, color:'var(--c-text2)', fontWeight:row.bold?600:400 }}>{row.label}</span>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:row.bold?700:500, color:row.color }}>{fmtMoney(row.value)}</span>
+              </div>
+            ))}
           </div>
           <div className="card" style={{ margin:0 }}>
             <div className="card-title">Combined totals</div>
-            <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
-              {[
-                { label:'Resale revenue', value:totals.gross, color:'var(--c-text2)' },
-                { label:'+ Repair revenue', value:repairRevenue, color:'var(--c-text2)' },
-                { label:'= Combined revenue', value:combinedGross, color:'var(--c-text)', bold:true, borderTop:true },
-                { label:'Resale profit', value:totals.profit, color:'var(--c-text2)' },
-                { label:'+ Repair profit', value:repairProfit, color:'var(--c-text2)' },
-                { label:'= Combined profit', value:combinedProfit, color:combinedProfit>=0?'var(--c-green)':'var(--c-red)', bold:true, borderTop:true },
-              ].map(row => (
-                <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'7px 4px', borderTop: row.borderTop ? '1px solid var(--c-border)' : undefined, marginTop: row.borderTop ? 4 : undefined }}>
-                  <span style={{ fontSize:13, color:'var(--c-text2)', fontWeight: row.bold ? 600 : 400 }}>{row.label}</span>
-                  <span style={{ fontFamily:"'DM Mono',monospace", fontSize:14, fontWeight: row.bold ? 700 : 500, color:row.color }}>{fmtMoney(row.value)}</span>
-                </div>
-              ))}
-            </div>
+            {[
+              { label:'Resale revenue', value:totals.gross, color:'var(--c-text2)' },
+              { label:'+ Repair revenue', value:repairRevenue, color:'var(--c-text2)' },
+              { label:'= Combined revenue', value:combinedGross, color:'var(--c-text)', bold:true, borderTop:true },
+              { label:'Resale profit', value:totals.profit, color:'var(--c-text2)' },
+              { label:'+ Repair profit', value:repairProfit, color:'var(--c-text2)' },
+              { label:'= Combined profit', value:combinedProfit, color:combinedProfit>=0?'var(--c-green)':'var(--c-red)', bold:true, borderTop:true },
+            ].map(row => (
+              <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'7px 4px', borderTop:row.borderTop?'1px solid var(--c-border)':undefined, marginTop:row.borderTop?4:undefined }}>
+                <span style={{ fontSize:13, color:'var(--c-text2)', fontWeight:row.bold?600:400 }}>{row.label}</span>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:row.bold?700:500, color:row.color }}>{fmtMoney(row.value)}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Year projections */}
+      {/* Projections — current year only */}
       {isCurrentYear && ytdGross > 0 && (
         <div className="card" style={{ marginBottom:'1rem' }}>
           <div className="card-header" style={{ marginBottom:12 }}>
             <span className="card-title">📈 {year} Projections</span>
-            <span style={{ fontSize:12, color:'var(--c-text3)' }}>Based on {monthsElapsed} month{monthsElapsed !== 1 ? 's' : ''} of actuals · {monthsRemaining} remaining</span>
+            <span style={{ fontSize:12, color:'var(--c-text3)' }}>{monthsElapsed} months of data · {monthsRemaining} remaining · avg {fmtMoney(avgMonthlyGross)}/mo</span>
           </div>
-
-          {/* Projection stat cards */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:16 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom: inStockItems.length > 0 ? 14 : 0 }}>
             {[
-              { label:'Projected revenue', ytd: ytdGross, projected: projectedGross, color:'var(--c-brand)' },
-              { label:'Projected profit', ytd: ytdProfit, projected: projectedProfit, color: projectedProfit >= 0 ? 'var(--c-green)' : 'var(--c-red)' },
-              { label:'Projected orders', ytd: ytdOrders, projected: projectedOrders, isMono:true, color:'var(--c-text)' },
-              { label:'Projected expenses', ytd: ytdBizExp, projected: projectedBizExp, color:'var(--c-amber)' },
+              { label:'Projected revenue', value:projectedGross, sub:`YTD ${fmtMoney(ytdGross)}`, color:'var(--c-brand)' },
+              { label:'Projected profit', value:projectedProfit, sub:`YTD ${fmtMoney(ytdProfit)}`, color:projectedProfit>=0?'var(--c-green)':'var(--c-red)' },
+              { label:'Projected orders', value:projectedOrders, sub:`YTD ${ytdOrders} · avg ${(avgMonthlyOrders).toFixed(1)}/mo`, color:'var(--c-text)', isCount:true },
             ].map(s => (
               <div key={s.label} className="stat-card">
                 <div className="stat-label">{s.label}</div>
-                <div className="stat-value" style={{ fontSize:18, color:s.color }}>
-                  {typeof s.projected === 'number' && !s.isMono ? fmtMoney(s.projected) : Math.round(s.projected)}
-                </div>
-                <div className="stat-sub" style={{ fontSize:11, color:'var(--c-text3)' }}>
-                  YTD: {s.isMono ? Math.round(s.ytd) : fmtMoney(s.ytd)} · avg {fmtMoney(s.isMono ? s.ytd/monthsElapsed : s.ytd/monthsElapsed)}/mo
-                </div>
+                <div className="stat-value" style={{ fontSize:20, color:s.color }}>{s.isCount ? s.value : fmtMoney(s.value)}</div>
+                <div className="stat-sub">{s.sub}</div>
               </div>
             ))}
           </div>
-
-          {/* Inventory sell-through potential */}
-          {inStockItems.length > 0 && (
+          {inStockItems.length > 0 && invPotentialRevenue > 0 && (
             <div style={{ borderTop:'1px solid var(--c-border)', paddingTop:12 }}>
-              <div style={{ fontSize:12, fontWeight:600, color:'var(--c-text2)', marginBottom:8 }}>
-                + If all {inStockItems.length} in-stock items sell at historical avg prices:
+              <div style={{ fontSize:12, color:'var(--c-text3)', marginBottom:8 }}>If all {inStockItems.length} in-stock items sell at historical avg prices:</div>
+              <div style={{ display:'flex', gap:16 }}>
+                <div>
+                  <div style={{ fontSize:11, color:'var(--c-text3)' }}>Additional revenue</div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontWeight:700, color:'var(--c-brand)' }}>{fmtMoney(invPotentialRevenue)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:'var(--c-text3)' }}>Additional profit</div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontWeight:700, color:invPotentialProfit>=0?'var(--c-green)':'var(--c-red)' }}>{fmtMoney(invPotentialProfit)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize:11, color:'var(--c-text3)' }}>Total projected profit</div>
+                  <div style={{ fontFamily:"'DM Mono',monospace", fontWeight:700, color:projectedProfitWithInv>=0?'var(--c-green)':'var(--c-red)' }}>{fmtMoney(projectedProfitWithInv)}</div>
+                </div>
               </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
-                {[
-                  { label:'Additional revenue', value: invPotentialRevenue, color:'var(--c-brand)' },
-                  { label:'Additional profit', value: invPotentialProfit, color: invPotentialProfit >= 0 ? 'var(--c-green)' : 'var(--c-red)' },
-                  { label:'Total projected profit', value: projectedProfitWithInv, color: projectedProfitWithInv >= 0 ? 'var(--c-green)' : 'var(--c-red)' },
-                ].map(s => (
-                  <div key={s.label} style={{ padding:'10px 14px', background:'var(--c-surface2)', borderRadius:8, border:'1px solid var(--c-border)' }}>
-                    <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:4 }}>{s.label}</div>
-                    <div style={{ fontSize:18, fontWeight:700, fontFamily:"'DM Mono',monospace", color:s.color }}>{fmtMoney(s.value)}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:8 }}>
-                ⚠ Inventory projections use historical avg selling price per SKU. Items without sales history are excluded.
-              </div>
+              <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:6 }}>⚠ Items without prior sales history excluded.</div>
             </div>
           )}
         </div>
       )}
 
-      {/* Revenue chart */}
-      <div className="card">
-        <div className="card-title">Monthly revenue breakdown</div>
-        <div className="chart-wrap">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={monthlyData} margin={{ top:4, right:4, left:-10, bottom:0 }} barGap={2} barSize={18}>
-              <XAxis dataKey="name" tick={{ fontSize:11 }} />
-              <YAxis tick={{ fontSize:10 }} tickFormatter={fmtK} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="gross" name="Gross" fill="var(--c-brand)" radius={[3,3,0,0]} opacity={0.3} />
-              <Bar dataKey="net" name="Net" fill="var(--c-brand)" radius={[3,3,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
+      {/* Monthly charts side by side */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:'1rem' }}>
+        <div className="card" style={{ margin:0 }}>
+          <div className="card-title">Monthly revenue</div>
+          <div className="chart-wrap">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthlyData} margin={{ top:4, right:4, left:-10, bottom:0 }} barGap={2} barSize={18}>
+                <XAxis dataKey="name" tick={{ fontSize:11 }} />
+                <YAxis tick={{ fontSize:10 }} tickFormatter={fmtK} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="gross" name="Gross" fill="var(--c-brand)" radius={[3,3,0,0]} opacity={0.3} />
+                <Bar dataKey="net" name="Net" fill="var(--c-brand)" radius={[3,3,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-      </div>
-
-      {/* Profit chart */}
-      <div className="card">
-        <div className="card-title">Monthly profit</div>
-        <div className="chart-wrap" style={{ height:180 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={monthlyData} margin={{ top:4, right:4, left:-10, bottom:0 }}>
-              <XAxis dataKey="name" tick={{ fontSize:11 }} />
-              <YAxis tick={{ fontSize:10 }} tickFormatter={fmtK} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="profit" name="Profit" radius={[3,3,0,0]}>
-                {monthlyData.map((m,i) => <Cell key={i} fill={m.profit>=0?'var(--c-green)':'var(--c-red)'} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="card" style={{ margin:0 }}>
+          <div className="card-title">Monthly profit</div>
+          <div className="chart-wrap">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthlyData} margin={{ top:4, right:4, left:-10, bottom:0 }}>
+                <XAxis dataKey="name" tick={{ fontSize:11 }} />
+                <YAxis tick={{ fontSize:10 }} tickFormatter={fmtK} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="profit" name="Profit" radius={[3,3,0,0]}>
+                  {monthlyData.map((m,i) => <Cell key={i} fill={m.profit>=0?'var(--c-green)':'var(--c-red)'} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
       {/* Monthly breakdown table */}
-      <div className="card">
+      <div className="card" style={{ marginBottom:'1rem' }}>
         <div className="card-title">Monthly breakdown</div>
         <div style={{ overflowX:'auto' }}>
           <table className="data-table">
@@ -367,9 +380,7 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
                   <td className="hide-mobile mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(m.itemCost)}</td>
                   <td className="hide-mobile mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(m.bizExp)}</td>
                   <td className={`mono ${m.profit>=0?'profit-positive':'profit-negative'}`}>{m.profit>=0?'+':''}{fmtMoney(m.profit)}</td>
-                  <td>
-                    <span className={`badge ${m.margin>=20?'badge-green':m.margin>=10?'badge-amber':'badge-red'}`}>{m.margin}%</span>
-                  </td>
+                  <td><span className={`badge ${m.margin>=20?'badge-green':m.margin>=10?'badge-amber':'badge-red'}`}>{m.margin}%</span></td>
                 </tr>
               ))}
               {totals.orders > 0 && (
@@ -389,36 +400,6 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
         </div>
         {totals.orders === 0 && <div className="empty"><div className="empty-icon">📊</div>No data for {year} yet.</div>}
       </div>
-      {/* Potential Revenue Summary */}
-      {(() => {
-        const unsoldSkus = skuData.filter(g => g.inStock > 0 && g.avgSellingPrice > 0)
-        if (unsoldSkus.length === 0) return null
-        const totalPotentialGross = unsoldSkus.reduce((s,g) => s+g.potentialGrossSale, 0)
-        const totalPotentialProfit = unsoldSkus.reduce((s,g) => s+g.potentialProfit, 0)
-        const totalUnsoldCost = unsoldSkus.reduce((s,g) => s+g.potentialItemCost, 0)
-        const totalUnsoldUnits = unsoldSkus.reduce((s,g) => s+g.inStock, 0)
-        return (
-          <div className="card" style={{ marginBottom:'1rem', border:'1px solid rgba(14,165,233,0.2)', background:'var(--c-brand-bg)' }}>
-            <div className="card-title" style={{ color:'var(--c-brand)' }}>Potential revenue — unsold inventory</div>
-            <p style={{ fontSize:13, color:'var(--c-text2)', marginBottom:12 }}>
-              Based on average selling price from past sales. {totalUnsoldUnits} units across {unsoldSkus.length} SKUs.
-            </p>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
-              {[
-                { label:'Potential gross revenue', value:fmtMoney(totalPotentialGross), color:'var(--c-brand)' },
-                { label:'Tied up in inventory', value:fmtMoney(totalUnsoldCost), color:'var(--c-text2)' },
-                { label:'Potential profit', value:(totalPotentialProfit>=0?'+':'')+fmtMoney(totalPotentialProfit), color:totalPotentialProfit>=0?'var(--c-green)':'var(--c-red)' },
-                { label:'Potential margin', value:totalPotentialGross>0?(totalPotentialProfit/totalPotentialGross*100).toFixed(1)+'%':'—', color:'var(--c-text)' },
-              ].map(m => (
-                <div key={m.label} className="stat-card">
-                  <div className="stat-label">{m.label}</div>
-                  <div className="stat-value" style={{ fontSize:20, color:m.color }}>{m.value}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-      })()}
 
       {/* SKU Summary */}
       <div className="card">
@@ -438,14 +419,10 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
                     <th>SKU / Item</th>
                     <th>Units</th>
                     <th className="hide-mobile">Total cost</th>
-                    <th className="hide-mobile">Selling fees</th>
-                    <th className="hide-mobile">Ad fees</th>
-                    <th className="hide-mobile">Shipping</th>
+                    <th className="hide-mobile">Fees + ship</th>
                     <th className="hide-mobile">Gross sale</th>
-                    <th>Net profit (sold)</th>
-                    <th>Total profit (all units)</th>
-                    <th className="hide-mobile">Potential gross</th>
-                    <th className="hide-mobile">Potential profit</th>
+                    <th>Net profit</th>
+                    <th className="hide-mobile">Potential</th>
                     <th>Margin</th>
                   </tr>
                 </thead>
@@ -455,9 +432,7 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
                     const q = skuSearch.toLowerCase()
                     return (g.sku||'').toLowerCase().includes(q) || (g.name||'').toLowerCase().includes(q)
                   }).map((g, i) => {
-                    // Total profit = net profit from sales minus ALL units' purchase cost
                     const totalProfitAllUnits = g.netRevenue - g.totalPurchaseCost
-                    const totalMarginAllUnits = g.grossSale > 0 ? (totalProfitAllUnits / g.grossSale * 100) : null
                     return (
                       <tr key={i}>
                         <td>
@@ -470,46 +445,27 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
                           <div className="mono" style={{ color:'var(--c-text2)' }}>{fmtMoney(g.totalPurchaseCost)}</div>
                           <div style={{ fontSize:11, color:'var(--c-text3)' }}>avg {fmtMoney(g.avgPurchaseCost)}</div>
                         </td>
-                        <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.sellingFees > 0 ? fmtMoney(g.sellingFees) : '—'}</td>
-                        <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.adFees > 0 ? fmtMoney(g.adFees) : '—'}</td>
-                        <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>{g.shippingCost > 0 ? fmtMoney(g.shippingCost) : '—'}</td>
+                        <td className="hide-mobile mono" style={{ color:'var(--c-amber)' }}>
+                          {(g.sellingFees+g.adFees+g.shippingCost) > 0 ? fmtMoney(g.sellingFees+g.adFees+g.shippingCost) : '—'}
+                        </td>
                         <td className="hide-mobile mono">{g.grossSale > 0 ? fmtMoney(g.grossSale) : '—'}</td>
-                        <td className={`mono ${g.netProfit > 0 ? 'profit-positive' : g.netProfit < 0 ? 'profit-negative' : ''}`}>
-                          {g.grossSale > 0 ? (g.netProfit >= 0 ? '+' : '') + fmtMoney(g.netProfit) : '—'}
-                        </td>
                         <td>
-                          {g.grossSale > 0 ? (
-                            <div>
-                              <div className={`mono ${totalProfitAllUnits > 0 ? 'profit-positive' : 'profit-negative'}`} style={{ fontWeight:600 }}>
-                                {totalProfitAllUnits >= 0 ? '+' : ''}{fmtMoney(totalProfitAllUnits)}
+                          {g.grossSale > 0
+                            ? <span className={`mono ${totalProfitAllUnits>=0?'profit-positive':'profit-negative'}`}>{totalProfitAllUnits>=0?'+':''}{fmtMoney(totalProfitAllUnits)}</span>
+                            : <span style={{ color:'var(--c-text3)', fontSize:12 }}>—</span>}
+                        </td>
+                        <td className="hide-mobile">
+                          {g.inStock > 0 && g.avgSellingPrice > 0
+                            ? <div>
+                                <div className="mono" style={{ color:'var(--c-brand)' }}>{fmtMoney(g.potentialGrossSale)}</div>
+                                <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.inStock} × {fmtMoney(g.avgSellingPrice)}</div>
                               </div>
-                              {g.inStock > 0 && (
-                                <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.inStock} unsold @ {fmtMoney(g.avgPurchaseCost)} ea</div>
-                              )}
-                            </div>
-                          ) : '—'}
-                        </td>
-                        <td className="hide-mobile">
-                          {g.inStock > 0 && g.avgSellingPrice > 0 ? (
-                            <div>
-                              <div className="mono" style={{ color:'var(--c-brand)' }}>{fmtMoney(g.potentialGrossSale)}</div>
-                              <div style={{ fontSize:11, color:'var(--c-text3)' }}>{g.inStock} × {fmtMoney(g.avgSellingPrice)}</div>
-                            </div>
-                          ) : <span style={{ color:'var(--c-text3)' }}>—</span>}
-                        </td>
-                        <td className="hide-mobile">
-                          {g.inStock > 0 && g.avgSellingPrice > 0 ? (
-                            <div className={`mono ${g.potentialProfit>=0?'profit-positive':'profit-negative'}`} style={{ fontWeight:600 }}>
-                              {g.potentialProfit>=0?'+':''}{fmtMoney(g.potentialProfit)}
-                              <div style={{ fontSize:11, fontWeight:400, color:'var(--c-text3)' }}>{g.potentialMargin.toFixed(1)}% margin</div>
-                            </div>
-                          ) : <span style={{ color:'var(--c-text3)' }}>—</span>}
+                            : <span style={{ color:'var(--c-text3)' }}>—</span>}
                         </td>
                         <td>
                           {g.grossSale > 0
                             ? <span className={`badge ${g.margin>=20?'badge-green':g.margin>=10?'badge-amber':'badge-red'}`}>{g.margin.toFixed(1)}%</span>
-                            : <span style={{ color:'var(--c-text3)', fontSize:12 }}>unsold</span>
-                          }
+                            : <span style={{ color:'var(--c-text3)', fontSize:12 }}>unsold</span>}
                         </td>
                       </tr>
                     )
