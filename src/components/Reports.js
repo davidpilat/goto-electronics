@@ -97,7 +97,7 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
   }), { gross:0, net:0, fees:0, itemCost:0, bizExp:0, profit:0, orders:0 })
 
   const totalInventoryCost = inventory.reduce((s, i) => s + parseFloat(i.purchase_cost||0), 0)
-  const totalPartsCost = parts.filter(p => p.status !== 'Needed').reduce((s, p) => s + parseFloat(p.cost||0), 0)
+  const totalPartsCost = expenses.filter(e => e.category === 'Parts').reduce((s, e) => s + parseFloat(e.amount||0), 0)
   const totalSuppliesCost = expenses.filter(e => e.category === 'Supplies' || e.category === 'Shipping Supplies').reduce((s, e) => s + parseFloat(e.amount||0), 0)
   const totalSellingFees = orders.reduce((s, o) => s + parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0), 0)
   const totalShippingCost = orders.reduce((s, o) => s + parseFloat(o.shipping_cost||0), 0)
