@@ -74,14 +74,25 @@ function normalizeRow(row) {
   }
 }
 
-export default function Inventory({ inventory, parts = [], repairReqs = [], setSyncing }) {
+// Empty repair form state factory
+const emptyRepairForm = () => ({
+  brand: '',
+  part_name: '',
+  color: '',
+  qty: 1,
+  repair_notes: '',
+  repair_date: today(),
+  partsUsed: [],   // [{ part_id, part_name, brand, color, qty, unit_cost }]
+})
+
+export default function Inventory({ inventory, parts = [], repairReqs = [], setSyncing, onRefresh }) {
   const [form, setForm] = useState({
     name: '', sku: '', serial_number: '', condition: 'Good',
     purchase_cost: '', status: 'In Stock', purchase_date: today(), notes: ''
   })
   const [adding, setAdding] = useState(false)
-  const [newItemId, setNewItemId] = useState(null)   // id of just-saved item awaiting parts
-  const [newItemReqs, setNewItemReqs] = useState([]) // staged reqs for new item
+  const [newItemId, setNewItemId] = useState(null)
+  const [newItemReqs, setNewItemReqs] = useState([])
   const [newReqForm, setNewReqForm] = useState({ part_id: '', qty: 1 })
   const [newPartForm, setNewPartForm] = useState(null)
   const [newPartFields, setNewPartFields] = useState({ part_name: '', brand: '', color: '', cost: '' })
@@ -91,14 +102,128 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
   const [editForm, setEditForm] = useState({})
   const [expandedGroups, setExpandedGroups] = useState({})
   const [expandedParts, setExpandedParts] = useState({})
-  const [reqForm, setReqForm] = useState({}) // { [inventoryId]: { part_id: '', qty: 1 } }
+  const [reqForm, setReqForm] = useState({})
   const [importing, setImporting] = useState(false)
   const [importPreview, setImportPreview] = useState(null)
   const [importError, setImportError] = useState('')
+  // Mark as Repaired state
+  const [repairOpen, setRepairOpen] = useState({})       // { [itemId]: bool }
+  const [repairForms, setRepairForms] = useState({})     // { [itemId]: repairFormState }
+  const [repairSaving, setRepairSaving] = useState({})   // { [itemId]: bool }
   const fileRef = useRef()
 
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
   const setEdit = (k, v) => setEditForm(prev => ({ ...prev, [k]: v }))
+
+  // Repair form helpers
+  const getRepairForm = (itemId) => repairForms[itemId] || emptyRepairForm()
+  const setRepairField = (itemId, key, val) =>
+    setRepairForms(prev => ({ ...prev, [itemId]: { ...(prev[itemId] || emptyRepairForm()), [key]: val } }))
+
+  const toggleRepair = (itemId) => {
+    setRepairOpen(prev => {
+      const open = !prev[itemId]
+      if (open && !repairForms[itemId]) {
+        setRepairForms(p => ({ ...p, [itemId]: emptyRepairForm() }))
+      }
+      return { ...prev, [itemId]: open }
+    })
+  }
+
+  // Add a part to the repair form's partsUsed list
+  const addRepairPart = (itemId) => {
+    const rf = getRepairForm(itemId)
+    if (!rf.part_name.trim()) return
+    // Find matching available part
+    const match = parts.find(p =>
+      p.status === 'Available' &&
+      p.part_name === rf.part_name &&
+      (!rf.brand || p.brand === rf.brand) &&
+      (!rf.color || p.color?.toLowerCase() === rf.color.toLowerCase())
+    )
+    const unit_cost = match ? parseFloat(match.cost || 0) : 0
+    const entry = {
+      part_id: match?.id || null,
+      part_name: rf.part_name,
+      brand: rf.brand || null,
+      color: rf.color || null,
+      qty: parseInt(rf.qty) || 1,
+      unit_cost,
+    }
+    setRepairForms(prev => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || emptyRepairForm()),
+        partsUsed: [...(prev[itemId]?.partsUsed || []), entry],
+        brand: '', part_name: '', color: '', qty: 1,
+      }
+    }))
+  }
+
+  const removeRepairPart = (itemId, idx) => {
+    setRepairForms(prev => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || emptyRepairForm()),
+        partsUsed: (prev[itemId]?.partsUsed || []).filter((_, i) => i !== idx),
+      }
+    }))
+  }
+
+  // Commit the repair: mark parts Used, update inventory parts_cost + repaired
+  const submitRepair = async (item) => {
+    const rf = getRepairForm(item.id)
+    setRepairSaving(prev => ({ ...prev, [item.id]: true }))
+    setSyncing(true)
+
+    const sn = item.serial_number || null
+
+    // For each part used, mark one Available unit as Used
+    for (const entry of rf.partsUsed) {
+      // Find an available part record matching this part
+      const matchParts = parts.filter(p =>
+        p.status === 'Available' &&
+        p.part_name === entry.part_name &&
+        (!entry.brand || p.brand === entry.brand) &&
+        (!entry.color || p.color?.toLowerCase() === entry.color?.toLowerCase())
+      )
+      // Mark qty units as Used
+      const toMark = matchParts.slice(0, entry.qty)
+      for (const p of toMark) {
+        await supabase.from('parts').update({
+          status: 'Used',
+          used_on_serial: sn || null,
+          used_date: rf.repair_date,
+        }).eq('id', p.id)
+      }
+    }
+
+    // Sum total parts cost
+    const totalPartsCost = rf.partsUsed.reduce((s, e) => s + (e.unit_cost * e.qty), 0)
+    const existingPartsCost = parseFloat(item.parts_cost || 0)
+
+    // Update inventory row
+    await supabase.from('inventory').update({
+      repaired: true,
+      repair_notes: rf.repair_notes || null,
+      parts_cost: existingPartsCost + totalPartsCost,
+    }).eq('id', item.id)
+
+    setSyncing(false)
+    setRepairSaving(prev => ({ ...prev, [item.id]: false }))
+    setRepairOpen(prev => ({ ...prev, [item.id]: false }))
+    setRepairForms(prev => ({ ...prev, [item.id]: emptyRepairForm() }))
+    onRefresh?.()
+  }
+
+  // Undo repair: clear repaired flag, notes, parts_cost
+  const undoRepair = async (itemId) => {
+    if (!window.confirm('Clear repair status for this item?')) return
+    setSyncing(true)
+    await supabase.from('inventory').update({ repaired: false, repair_notes: null, parts_cost: 0 }).eq('id', itemId)
+    setSyncing(false)
+    onRefresh?.()
+  }
 
   const handleFileSelect = (e) => {
     const file = e.target.files[0]
@@ -123,7 +248,6 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
     for (let i = 0; i < importPreview.length; i += 50) {
       await supabase.from('inventory').insert(importPreview.slice(i, i + 50))
     }
-    // Check if any imported items have matching orders — mark them sold
     const serialsToCheck = importPreview.map(r => r.serial_number).filter(Boolean)
     if (serialsToCheck.length > 0) {
       const { data: matchingOrders } = await supabase
@@ -141,6 +265,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
     }
     setImportPreview(null)
     setImporting(false); setSyncing(false)
+    onRefresh?.()
     alert('Imported ' + importPreview.length + ' items successfully!')
   }
 
@@ -157,7 +282,6 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
       purchase_date: form.purchase_date,
       notes: form.notes.trim() || null,
     }).select()
-    // If serial number already has a matching order, mark as sold
     if (form.serial_number.trim()) {
       const { data: existingOrder } = await supabase
         .from('orders')
@@ -176,6 +300,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
       setNewItemReqs([])
       setNewReqForm({ part_id: '', qty: 1 })
     }
+    onRefresh?.()
   }
 
   const finishNewItem = () => {
@@ -221,7 +346,6 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
   const createAndSelectPart = async (context) => {
     if (!newPartFields.part_name.trim()) return
     setSyncing(true)
-    // Insert with status 'Needed' — defines the part type without adding physical stock
     const { data: inserted } = await supabase.from('parts').insert({
       part_name: newPartFields.part_name.trim(),
       brand: newPartFields.brand.trim() || null,
@@ -254,6 +378,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
       notes: editForm.notes || null,
     }).eq('id', id)
     setEditId(null); setSyncing(false)
+    onRefresh?.()
   }
 
   const deleteItem = async (id) => {
@@ -261,6 +386,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
     setSyncing(true)
     await supabase.from('inventory').delete().eq('id', id)
     setSyncing(false)
+    onRefresh?.()
   }
 
   const downloadTemplate = () => {
@@ -293,6 +419,10 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
   const inStock = inventory.filter(i => i.status === 'In Stock').length
   const listed = inventory.filter(i => i.status === 'Listed').length
   const totalEverPurchased = inventory.reduce((s, i) => s + parseFloat(i.purchase_cost||0), 0)
+
+  // Unique brands and part names from available parts for cascading pickers
+  const availableParts = parts.filter(p => p.status === 'Available')
+  const uniqueBrands = [...new Set(availableParts.map(p => p.brand).filter(Boolean))].sort()
 
   return (
     <div>
@@ -413,14 +543,12 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
           </>
         ) : (
           <>
-            {/* Item saved — now add parts */}
             <div style={{ padding:'10px 14px', background:'var(--c-surface2)', borderRadius:8, marginBottom:14, display:'flex', alignItems:'center', gap:8 }}>
               <span style={{ color:'var(--c-green)', fontSize:16 }}>✓</span>
               <span style={{ fontWeight:600 }}>{form.name}</span>
               <span style={{ fontSize:12, color:'var(--c-text3)' }}>saved — add parts needed for repair below, or skip</span>
             </div>
 
-            {/* Parts already added */}
             {newItemReqs.length > 0 && (
               <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:12 }}>
                 {newItemReqs.map(req => {
@@ -439,7 +567,6 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
               </div>
             )}
 
-            {/* Add part row */}
             {(() => {
               const partOptions = []
               const seen = new Set()
@@ -515,8 +642,6 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
       {/* Parts to Order summary */}
       {(() => {
         const activeItems = inventory.filter(i => i.status === 'In Stock' || i.status === 'Listed')
-
-        // Build demand map from repair_requirements for active inventory only
         const demandMap = {}
         activeItems.forEach(item => {
           const reqs = repairReqs.filter(r => r.inventory_id === item.id)
@@ -527,7 +652,6 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
             demandMap[key].totalNeeded += req.qty
           })
         })
-
         const shortfalls = Object.values(demandMap).map(({ label, req, totalNeeded }) => {
           const avail = parts.filter(p =>
             p.status === 'Available' &&
@@ -584,10 +708,19 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
             </select>
           </div>
         </div>
+
+        {/* Legend */}
+        <div style={{ display:'flex', gap:12, fontSize:11, color:'var(--c-text3)', marginBottom:10, flexWrap:'wrap' }}>
+          <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:8, height:8, borderRadius:2, background:'#6b7280', display:'inline-block' }} /> Needs repair</span>
+          <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:8, height:8, borderRadius:2, background:'#0ea5e9', display:'inline-block' }} /> Repaired / ready</span>
+          <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:8, height:8, borderRadius:2, background:'#16a34a', display:'inline-block' }} /> Parts all in stock</span>
+          <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:8, height:8, borderRadius:2, background:'#d97706', display:'inline-block' }} /> Parts partial</span>
+          <span style={{ display:'flex', alignItems:'center', gap:4 }}><span style={{ width:8, height:8, borderRadius:2, background:'#dc2626', display:'inline-block' }} /> Parts missing</span>
+        </div>
+
         {filtered.length === 0
           ? <div className="empty"><div className="empty-icon">📱</div>No items yet. Import a CSV or add items above.</div>
           : (() => {
-              // Group by SKU — items with no SKU get their own group by name
               const groups = {}
               filtered.forEach(item => {
                 const key = item.sku ? item.sku : ('__no_sku__' + item.name)
@@ -597,16 +730,15 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
 
               return Object.entries(groups).map(([key, group]) => {
                 const items = group.items
-                const inStock = items.filter(i => i.status === 'In Stock').length
-                const listed = items.filter(i => i.status === 'Listed').length
-                const sold = items.filter(i => i.status === 'Sold').length
+                const inStockG = items.filter(i => i.status === 'In Stock').length
+                const listedG = items.filter(i => i.status === 'Listed').length
+                const soldG = items.filter(i => i.status === 'Sold').length
                 const totalGroupCost = items.reduce((s, i) => s + parseFloat(i.purchase_cost||0), 0)
                 const avgCost = items.length > 0 ? totalGroupCost / items.length : 0
-                const isExpanded = expandedGroups[key] === true // default collapsed
+                const isExpanded = expandedGroups[key] === true
 
                 return (
                   <div key={key} style={{ marginBottom:12 }}>
-                    {/* SKU group header */}
                     <div
                       onClick={() => setExpandedGroups(prev => ({ ...prev, [key]: !isExpanded }))}
                       style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', background:'var(--c-surface2)', borderRadius:'var(--radius)', cursor:'pointer', userSelect:'none' }}
@@ -619,27 +751,27 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                         </div>
                       </div>
                       <div style={{ display:'flex', gap:8, alignItems:'center', flexShrink:0 }}>
-                        {inStock > 0 && <span className="badge badge-green">{inStock} in stock</span>}
-                        {listed > 0 && <span className="badge badge-brand">{listed} listed</span>}
-                        {sold > 0 && <span className="badge badge-gray">{sold} sold</span>}
+                        {inStockG > 0 && <span className="badge badge-green">{inStockG} in stock</span>}
+                        {listedG > 0 && <span className="badge badge-brand">{listedG} listed</span>}
+                        {soldG > 0 && <span className="badge badge-gray">{soldG} sold</span>}
                         <span style={{ fontSize:12, color:'var(--c-text2)', fontFamily:"'DM Mono',monospace" }}>avg {fmtMoney(avgCost)}</span>
                         <span style={{ fontSize:12, color:'var(--c-text3)' }}>{items.length} total</span>
                       </div>
                     </div>
 
-                    {/* Expanded items table */}
                     {isExpanded && (
                       <div style={{ overflowX:'auto', marginTop:2 }}>
                         <table className="data-table" style={{ fontSize:12 }}>
                           <thead>
                             <tr>
-                              <th style={{ width:8, padding:'6px 4px' }}></th>
+                              <th style={{ width:4, padding:'6px 4px' }}></th>
                               <th>Model</th>
                               <th>Color</th>
                               <th>Cond</th>
                               <th>Serial #</th>
+                              <th>Cost</th>
                               <th>Status</th>
-                              <th>Parts needed</th>
+                              <th>Parts / Repair</th>
                               <th></th>
                             </tr>
                           </thead>
@@ -647,7 +779,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                             {items.map(item => {
                               if (editId === item.id) return (
                                 <tr key={item.id}>
-                                  <td colSpan={8}>
+                                  <td colSpan={9}>
                                     <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'8px 0', alignItems:'flex-end' }}>
                                       <input style={{ flex:'2 1 160px', height:34 }} type="text" value={editForm.name} onChange={e => setEdit('name', e.target.value)} placeholder="Name" />
                                       <input style={{ flex:'1 1 110px', height:34 }} type="text" value={editForm.serial_number||''} onChange={e => setEdit('serial_number', e.target.value)} placeholder="Serial #" />
@@ -679,13 +811,26 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                               const allOk = itemReqs.length > 0 && reqsWithStock.every(r => r.ok)
                               const someOk = itemReqs.length > 0 && reqsWithStock.some(r => r.ok) && !allOk
                               const noneOk = itemReqs.length > 0 && reqsWithStock.every(r => !r.ok)
+                              const isRepaired = item.repaired === true
 
-                              // Row left-border color
-                              const rowColor = allOk ? '#16a34a' : someOk ? '#d97706' : noneOk ? '#dc2626' : 'transparent'
-                              const rowBg = allOk ? 'rgba(22,163,74,0.05)' : someOk ? 'rgba(217,119,6,0.05)' : noneOk ? 'rgba(220,38,38,0.05)' : 'transparent'
+                              // Row left-border color: blue=repaired, green=parts ok, amber=partial, red=missing, gray=no reqs
+                              const rowColor = isRepaired
+                                ? '#0ea5e9'
+                                : allOk ? '#16a34a'
+                                : someOk ? '#d97706'
+                                : noneOk ? '#dc2626'
+                                : '#6b7280'
+                              const rowBg = isRepaired
+                                ? 'rgba(14,165,233,0.05)'
+                                : allOk ? 'rgba(22,163,74,0.05)'
+                                : someOk ? 'rgba(217,119,6,0.05)'
+                                : noneOk ? 'rgba(220,38,38,0.05)'
+                                : 'transparent'
 
                               const isOpen = expandedParts[item.id]
+                              const isRepairOpen = repairOpen[item.id]
                               const rf = reqForm[item.id] || { part_id: '', qty: 1 }
+                              const repairF = getRepairForm(item.id)
 
                               const partOptions = []
                               const seen = new Set()
@@ -711,22 +856,47 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                 })
                                 setReqForm(prev => ({ ...prev, [item.id]: { part_id: '', qty: 1 } }))
                                 setSyncing(false)
+                                onRefresh?.()
                               }
 
                               const removeReq = async (reqId) => {
                                 setSyncing(true)
                                 await supabase.from('repair_requirements').delete().eq('id', reqId)
                                 setSyncing(false)
+                                onRefresh?.()
                               }
 
-                              // Condition short label
                               const condShort = { 'Like New':'LN', 'Excellent':'A', 'Good':'B', 'Fair':'C', 'For Parts':'P' }
                               const condColor = { 'Like New':'var(--c-green)', 'Excellent':'var(--c-green)', 'Good':'var(--c-brand)', 'Fair':'var(--c-amber)', 'For Parts':'var(--c-red)' }
+
+                              // Cascading part picker values for repair form
+                              const rpBrands = [...new Set(availableParts.map(p => p.brand).filter(Boolean))].sort()
+                              const rpPartNames = repairF.brand
+                                ? [...new Set(availableParts.filter(p => p.brand === repairF.brand).map(p => p.part_name))].sort()
+                                : [...new Set(availableParts.map(p => p.part_name))].sort()
+                              const rpColors = (repairF.part_name
+                                ? availableParts.filter(p =>
+                                    p.part_name === repairF.part_name &&
+                                    (!repairF.brand || p.brand === repairF.brand)
+                                  ).map(p => p.color).filter(Boolean)
+                                : []
+                              )
+                              const rpColorsUniq = [...new Set(rpColors)].sort()
+
+                              // Count available stock for selected part
+                              const rpStockCount = repairF.part_name
+                                ? availableParts.filter(p =>
+                                    p.part_name === repairF.part_name &&
+                                    (!repairF.brand || p.brand === repairF.brand) &&
+                                    (!repairF.color || p.color?.toLowerCase() === repairF.color.toLowerCase())
+                                  ).length
+                                : 0
+
+                              const totalRepairCost = repairF.partsUsed.reduce((s, e) => s + e.unit_cost * e.qty, 0)
 
                               return (
                                 <React.Fragment key={item.id}>
                                   <tr style={{ background: rowBg }}>
-                                    {/* Color bar */}
                                     <td style={{ padding:0, width:4 }}>
                                       <div style={{ width:4, height:'100%', minHeight:36, background: rowColor, borderRadius:2 }} />
                                     </td>
@@ -738,7 +908,18 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                       </span>
                                     </td>
                                     <td style={{ fontSize:11, fontFamily:"'DM Mono',monospace", color:'var(--c-text3)' }}>{item.serial_number || '—'}</td>
-                                    <td>{statusBadge(item.status)}</td>
+                                    <td style={{ fontSize:11, fontFamily:"'DM Mono',monospace" }}>
+                                      <span>{fmtMoney(item.purchase_cost)}</span>
+                                      {parseFloat(item.parts_cost||0) > 0 && (
+                                        <span style={{ display:'block', color:'var(--c-brand)', fontSize:10 }}>+{fmtMoney(item.parts_cost)} parts</span>
+                                      )}
+                                    </td>
+                                    <td>
+                                      <div style={{ display:'flex', flexDirection:'column', gap:2, alignItems:'flex-start' }}>
+                                        {statusBadge(item.status)}
+                                        {isRepaired && <span style={{ fontSize:10, color:'#0ea5e9', fontWeight:600 }}>✓ Repaired</span>}
+                                      </div>
+                                    </td>
                                     <td>
                                       {itemReqs.length === 0 ? (
                                         <span style={{ fontSize:11, color:'var(--c-text3)' }}>—</span>
@@ -761,10 +942,30 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                       )}
                                     </td>
                                     <td>
-                                      <div style={{ display:'flex', gap:3 }}>
+                                      <div style={{ display:'flex', gap:3, flexWrap:'wrap' }}>
+                                        {/* Mark as Repaired button */}
+                                        {!isRepaired ? (
+                                          <button
+                                            className="btn btn-sm"
+                                            style={{ height:26, padding:'0 8px', fontSize:11, background: isRepairOpen ? 'var(--c-brand)' : undefined, color: isRepairOpen ? '#fff' : undefined }}
+                                            onClick={() => toggleRepair(item.id)}
+                                            title="Log repair & parts used"
+                                          >
+                                            🔧 Repair
+                                          </button>
+                                        ) : (
+                                          <button
+                                            className="btn btn-sm"
+                                            style={{ height:26, padding:'0 8px', fontSize:11, color:'#0ea5e9' }}
+                                            onClick={() => undoRepair(item.id)}
+                                            title="Clear repair status"
+                                          >
+                                            ✓ Repaired
+                                          </button>
+                                        )}
                                         <button className="btn btn-sm" style={{ height:26, padding:'0 8px', fontSize:11 }}
                                           onClick={() => setExpandedParts(prev => ({ ...prev, [item.id]: !isOpen }))}>
-                                          🔧{itemReqs.length > 0 ? ` ${itemReqs.length}` : '+'}
+                                          Parts{itemReqs.length > 0 ? ` (${itemReqs.length})` : ' +'}
                                         </button>
                                         <button className="btn btn-sm" style={{ height:26, padding:'0 8px', fontSize:11 }}
                                           onClick={() => { setEditId(item.id); setEditForm({...item}) }}>Edit</button>
@@ -773,10 +974,165 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                       </div>
                                     </td>
                                   </tr>
-                                  {/* Parts panel */}
+
+                                  {/* Mark as Repaired panel */}
+                                  {isRepairOpen && !isRepaired && (
+                                    <tr style={{ background:'rgba(14,165,233,0.04)' }}>
+                                      <td colSpan={9} style={{ padding:'12px 14px 16px 14px', borderBottom:'2px solid #0ea5e9' }}>
+                                        <div style={{ maxWidth:620 }}>
+                                          <div style={{ fontSize:13, fontWeight:600, color:'#0ea5e9', marginBottom:10 }}>
+                                            🔧 Mark as Repaired — {item.name}
+                                          </div>
+
+                                          {/* Parts used so far */}
+                                          {repairF.partsUsed.length > 0 && (
+                                            <div style={{ marginBottom:10 }}>
+                                              <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:4 }}>Parts logged:</div>
+                                              <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                                                {repairF.partsUsed.map((p, i) => (
+                                                  <div key={i} style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 8px', borderRadius:6, background:'rgba(14,165,233,0.1)', border:'1px solid #0ea5e9', fontSize:11 }}>
+                                                    <span style={{ fontWeight:600 }}>
+                                                      {p.brand ? p.brand + ' ' : ''}{p.part_name}{p.color ? ' — ' + p.color : ''}
+                                                    </span>
+                                                    <span style={{ color:'var(--c-text3)' }}>×{p.qty}</span>
+                                                    {p.unit_cost > 0 && <span style={{ color:'#0ea5e9' }}>{fmtMoney(p.unit_cost * p.qty)}</span>}
+                                                    <button style={{ background:'none', border:'none', cursor:'pointer', color:'var(--c-text3)', fontSize:12, lineHeight:1, padding:'0 2px' }} onClick={() => removeRepairPart(item.id, i)}>×</button>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                              {totalRepairCost > 0 && (
+                                                <div style={{ fontSize:12, color:'var(--c-text2)', marginTop:6 }}>
+                                                  Parts cost: <strong style={{ color:'#0ea5e9' }}>{fmtMoney(totalRepairCost)}</strong>
+                                                  {parseFloat(item.parts_cost||0) > 0 && <span style={{ color:'var(--c-text3)' }}> (existing: {fmtMoney(item.parts_cost)}, new total: {fmtMoney(parseFloat(item.parts_cost||0) + totalRepairCost)})</span>}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+
+                                          {/* Add part row — cascading pickers */}
+                                          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 60px auto', gap:6, marginBottom:8, alignItems:'end' }}>
+                                            <div>
+                                              <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Brand</div>
+                                              <select
+                                                value={repairF.brand}
+                                                onChange={e => {
+                                                  setRepairField(item.id, 'brand', e.target.value)
+                                                  setRepairField(item.id, 'part_name', '')
+                                                  setRepairField(item.id, 'color', '')
+                                                }}
+                                                style={{ height:32, fontSize:12, width:'100%' }}
+                                              >
+                                                <option value="">All brands</option>
+                                                {rpBrands.map(b => <option key={b} value={b}>{b}</option>)}
+                                              </select>
+                                            </div>
+                                            <div>
+                                              <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Part name</div>
+                                              <select
+                                                value={repairF.part_name}
+                                                onChange={e => {
+                                                  setRepairField(item.id, 'part_name', e.target.value)
+                                                  setRepairField(item.id, 'color', '')
+                                                }}
+                                                style={{ height:32, fontSize:12, width:'100%' }}
+                                              >
+                                                <option value="">— Select part —</option>
+                                                {rpPartNames.map(n => <option key={n} value={n}>{n}</option>)}
+                                              </select>
+                                            </div>
+                                            <div>
+                                              <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>
+                                                Color{rpStockCount > 0 && <span style={{ color:'var(--c-green)', marginLeft:4 }}>({rpStockCount} available)</span>}
+                                              </div>
+                                              <select
+                                                value={repairF.color}
+                                                onChange={e => setRepairField(item.id, 'color', e.target.value)}
+                                                style={{ height:32, fontSize:12, width:'100%' }}
+                                                disabled={rpColorsUniq.length === 0}
+                                              >
+                                                <option value="">Any color</option>
+                                                {rpColorsUniq.map(c => <option key={c} value={c}>{c}</option>)}
+                                              </select>
+                                            </div>
+                                            <div>
+                                              <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Qty</div>
+                                              <input
+                                                type="number" min="1" step="1"
+                                                value={repairF.qty}
+                                                onChange={e => setRepairField(item.id, 'qty', e.target.value)}
+                                                style={{ height:32, fontSize:12, width:'100%' }}
+                                              />
+                                            </div>
+                                            <button
+                                              className="btn btn-sm btn-primary"
+                                              style={{ height:32 }}
+                                              onClick={() => addRepairPart(item.id)}
+                                              disabled={!repairF.part_name}
+                                            >
+                                              + Add
+                                            </button>
+                                          </div>
+
+                                          {rpStockCount === 0 && repairF.part_name && (
+                                            <div style={{ fontSize:11, color:'var(--c-amber)', marginBottom:8 }}>
+                                              ⚠ No available stock found for this part — it will still be logged but stock count won't change.
+                                            </div>
+                                          )}
+
+                                          {/* Repair notes + date */}
+                                          <div style={{ display:'grid', gridTemplateColumns:'1fr 140px', gap:8, marginBottom:12 }}>
+                                            <div>
+                                              <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Repair notes (optional)</div>
+                                              <input
+                                                type="text"
+                                                placeholder="e.g. replaced headband, cleaned contacts…"
+                                                value={repairF.repair_notes}
+                                                onChange={e => setRepairField(item.id, 'repair_notes', e.target.value)}
+                                                style={{ height:32, fontSize:12, width:'100%' }}
+                                              />
+                                            </div>
+                                            <div>
+                                              <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Repair date</div>
+                                              <input
+                                                type="date"
+                                                value={repairF.repair_date}
+                                                onChange={e => setRepairField(item.id, 'repair_date', e.target.value)}
+                                                style={{ height:32, fontSize:12, width:'100%' }}
+                                              />
+                                            </div>
+                                          </div>
+
+                                          {/* Actions */}
+                                          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                                            <button
+                                              className="btn btn-primary"
+                                              style={{ fontSize:12 }}
+                                              onClick={() => submitRepair(item)}
+                                              disabled={repairSaving[item.id]}
+                                            >
+                                              {repairSaving[item.id] ? 'Saving…' : '✓ Mark as Repaired'}
+                                            </button>
+                                            <button
+                                              className="btn btn-sm"
+                                              onClick={() => toggleRepair(item.id)}
+                                            >
+                                              Cancel
+                                            </button>
+                                            <span style={{ fontSize:11, color:'var(--c-text3)' }}>
+                                              {repairF.partsUsed.length === 0
+                                                ? 'No parts logged — you can still mark as repaired'
+                                                : `${repairF.partsUsed.length} part(s) will be deducted from stock`}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+
+                                  {/* Parts requirements panel */}
                                   {isOpen && (
                                     <tr style={{ background: rowBg }}>
-                                      <td colSpan={8} style={{ padding:'4px 8px 12px 12px', borderBottom:'1px solid var(--c-border)' }}>
+                                      <td colSpan={9} style={{ padding:'4px 8px 12px 12px', borderBottom:'1px solid var(--c-border)' }}>
                                         <div style={{ display:'flex', flexDirection:'column', gap:8, maxWidth:560 }}>
                                           {itemReqs.length > 0 && (
                                             <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
@@ -801,7 +1157,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                               if (e.target.value === '__create__') { setNewPartForm(item.id); setNewPartFields({ part_name:'', brand:'', color:'', cost:'' }); setReqForm(prev => ({ ...prev, [item.id]: { ...rf, part_id: '' } })) }
                                               else setReqForm(prev => ({ ...prev, [item.id]: { ...rf, part_id: e.target.value } }))
                                             }} style={{ height:30, fontSize:12 }}>
-                                              <option value="">— Add part —</option>
+                                              <option value="">— Add part requirement —</option>
                                               {partOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
                                               <option value="__create__">＋ Create new…</option>
                                             </select>
