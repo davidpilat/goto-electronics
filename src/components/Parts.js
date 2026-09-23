@@ -31,6 +31,14 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing, onR
   // Cascading selectors for Use a Part
   const [filterBrand, setFilterBrand] = useState('')
   const [filterColor, setFilterColor] = useState('')
+  // Quick add / edit panel
+  const [showQuickAdd, setShowQuickAdd] = useState(false)
+  const [quickForm, setQuickForm] = useState({ part_name:'', brand:'', color:'', quantity:'1', cost:'', status:'Available' })
+  const [quickSaving, setQuickSaving] = useState(false)
+  const [quickEditGroup, setQuickEditGroup] = useState(null) // { brand, part_name, color, items[] }
+  const [qeForm, setQeForm] = useState({ name:'', brand:'', color:'', qty:'', cost:'' })
+  const setQ = (k, v) => setQuickForm(prev => ({ ...prev, [k]: v }))
+  const setQe = (k, v) => setQeForm(prev => ({ ...prev, [k]: v }))
 
   const setHeader = (k, v) => setLotHeader(prev => ({ ...prev, [k]: v }))
   const setUse = (k, v) => setUseForm(prev => ({ ...prev, [k]: v }))
@@ -204,6 +212,69 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing, onR
     }
     setAddingToLot(null)
     setAddToLotLine({ part_name:'', color:'', quantity:'', price:'' })
+    setSyncing(false)
+    onRefresh?.()
+  }
+
+  const submitQuickAdd = async () => {
+    if (!quickForm.part_name.trim() || parseInt(quickForm.quantity) < 1) return
+    setQuickSaving(true); setSyncing(true)
+    const qty = parseInt(quickForm.quantity) || 1
+    const records = Array.from({ length: qty }, () => ({
+      part_name: quickForm.part_name.trim(),
+      brand: quickForm.brand.trim() || null,
+      color: quickForm.color.trim() || null,
+      cost: parseFloat(quickForm.cost) || 0,
+      status: quickForm.status,
+      purchase_date: today(),
+    }))
+    for (let i = 0; i < records.length; i += 50) {
+      await supabase.from('parts').insert(records.slice(i, i + 50))
+    }
+    setQuickForm({ part_name:'', brand:'', color:'', quantity:'1', cost:'', status:'Available' })
+    setShowQuickAdd(false)
+    setQuickSaving(false); setSyncing(false)
+    onRefresh?.()
+  }
+
+  const saveQuickEditGroup = async (group, newQty, newCost, newPartName, newBrand, newColor) => {
+    setSyncing(true)
+    const oldQty = group.items.length
+    const diff = newQty - oldQty
+    const trimmedName = newPartName.trim()
+    const trimmedBrand = newBrand.trim() || null
+    const trimmedColor = newColor.trim() || null
+    const cost = parseFloat(newCost) || group.items[0]?.cost || 0
+
+    // Rename / recolor all existing rows in the group
+    if (trimmedName !== group.part_name || trimmedBrand !== (group.brand === 'No Brand' ? null : group.brand) || trimmedColor !== (group.color === 'No Color' ? null : group.color) || cost !== (group.items[0]?.cost || 0)) {
+      for (const p of group.items) {
+        await supabase.from('parts').update({
+          part_name: trimmedName,
+          brand: trimmedBrand,
+          color: trimmedColor,
+          cost,
+        }).eq('id', p.id)
+      }
+    }
+
+    if (diff < 0) {
+      // Remove rows
+      const toRemove = group.items.slice(0, Math.abs(diff))
+      for (const p of toRemove) await supabase.from('parts').delete().eq('id', p.id)
+    } else if (diff > 0) {
+      // Add rows
+      await supabase.from('parts').insert(Array.from({ length: diff }, () => ({
+        part_name: trimmedName,
+        brand: trimmedBrand,
+        color: trimmedColor,
+        cost,
+        status: group.items[0]?.status || 'Available',
+        purchase_date: today(),
+        lot_id: group.items[0]?.lot_id || null,
+      })))
+    }
+    setQuickEditGroup(null)
     setSyncing(false)
     onRefresh?.()
   }
@@ -434,11 +505,106 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing, onR
       {/* Parts Inventory */}
       {activeTab === 'inventory' && (
         <div>
+          {/* Quick Add / Edit Modal */}
+          {(showQuickAdd || quickEditGroup) && (
+            <div style={{
+              position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000,
+              display:'flex', alignItems:'center', justifyContent:'center', padding:16
+            }} onClick={e => { if (e.target === e.currentTarget) { setShowQuickAdd(false); setQuickEditGroup(null) } }}>
+              <div style={{ background:'var(--c-surface)', borderRadius:14, padding:24, width:'100%', maxWidth:460, boxShadow:'0 8px 40px rgba(0,0,0,0.3)' }}>
+                {showQuickAdd ? (
+                  <>
+                    <div style={{ fontWeight:700, fontSize:16, marginBottom:16 }}>➕ Add Part</div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                      <div className="form-group">
+                        <label className="form-label">Part name *</label>
+                        <input type="text" placeholder="e.g. Studio 3 Earpads" value={quickForm.part_name} onChange={e => setQ('part_name', e.target.value)} autoFocus />
+                      </div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                        <div className="form-group">
+                          <label className="form-label">Brand</label>
+                          <input type="text" placeholder="e.g. Beats" value={quickForm.brand} onChange={e => setQ('brand', e.target.value)} />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Color</label>
+                          <input type="text" placeholder="e.g. Black" value={quickForm.color} onChange={e => setQ('color', e.target.value)} />
+                        </div>
+                      </div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
+                        <div className="form-group">
+                          <label className="form-label">Quantity *</label>
+                          <input type="number" min="1" step="1" value={quickForm.quantity} onChange={e => setQ('quantity', e.target.value)} />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Cost ea $</label>
+                          <input type="number" min="0" step="0.01" placeholder="0.00" value={quickForm.cost} onChange={e => setQ('cost', e.target.value)} />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Status</label>
+                          <select value={quickForm.status} onChange={e => setQ('status', e.target.value)}>
+                            <option value="Available">Available</option>
+                            <option value="Needed">Needed</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                        <button className="btn btn-primary" onClick={submitQuickAdd} disabled={quickSaving || !quickForm.part_name.trim()}>
+                          {quickSaving ? 'Saving…' : 'Add part'}
+                        </button>
+                        <button className="btn" onClick={() => setShowQuickAdd(false)}>Cancel</button>
+                      </div>
+                    </div>
+                  </>
+                ) : quickEditGroup ? (
+                  <>
+                    <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>✏️ Edit Part Group</div>
+                    <div style={{ fontSize:12, color:'var(--c-text3)', marginBottom:16 }}>Changes apply to all {quickEditGroup.items.length} records in this group</div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                      <div className="form-group">
+                        <label className="form-label">Part name *</label>
+                        <input type="text" value={qeForm.name} onChange={e => setQe('name', e.target.value)} autoFocus />
+                      </div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                        <div className="form-group">
+                          <label className="form-label">Brand</label>
+                          <input type="text" value={qeForm.brand} onChange={e => setQe('brand', e.target.value)} />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Color</label>
+                          <input type="text" value={qeForm.color} onChange={e => setQe('color', e.target.value)} />
+                        </div>
+                      </div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                        <div className="form-group">
+                          <label className="form-label">Quantity</label>
+                          <input type="number" min="0" step="1" value={qeForm.qty} onChange={e => setQe('qty', e.target.value)} />
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">Cost ea $</label>
+                          <input type="number" min="0" step="0.01" value={qeForm.cost} onChange={e => setQe('cost', e.target.value)} />
+                        </div>
+                      </div>
+                      <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                        <button className="btn btn-primary"
+                          onClick={() => saveQuickEditGroup(quickEditGroup, parseInt(qeForm.qty)||0, qeForm.cost, qeForm.name, qeForm.brand, qeForm.color)}
+                          disabled={!qeForm.name.trim()}>
+                          Save changes
+                        </button>
+                        <button className="btn" onClick={() => setQuickEditGroup(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          )}
+
           {/* Grouped summary */}
           <div className="card">
             <div className="card-header">
               <span className="card-title">Parts breakdown</span>
               <div style={{ display:'flex', gap:8 }}>
+                <button className="btn btn-primary btn-sm" onClick={() => { setShowQuickAdd(true); setQuickEditGroup(null) }}>+ Add part</button>
                 <input type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}
                   style={{ height:32, width:140, fontSize:13 }} />
                 <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
@@ -501,7 +667,6 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing, onR
                                 const qty = items.length
                                 const avgCost = items.reduce((s,p) => s+parseFloat(p.cost||0),0) / qty
                                 const editKey = `${brand}|||${g.part_name}|||${color}`
-                                const isEditing = editPartId === editKey
                                 const stockColor = qty === 0 ? 'var(--c-text3)' : qty <= 2 ? 'var(--c-amber)' : 'var(--c-green)'
                                 return (
                                   <div key={editKey} style={{
@@ -514,51 +679,28 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing, onR
                                     <div style={{ fontSize:12, color:'var(--c-text2)', fontWeight:500 }}>
                                       {color !== 'No Color' ? color : '—'}
                                     </div>
-                                    {isEditing ? (
-                                      <div style={{ display:'flex', gap:4, alignItems:'center' }}>
-                                        <input type="number" min="0" step="1"
-                                          value={editPartForm.qty}
-                                          onChange={e => setEditPartForm(prev => ({ ...prev, qty: e.target.value }))}
-                                          style={{ width:52, height:28, fontSize:13 }} />
-                                        <button className="btn btn-primary btn-sm" onClick={async () => {
-                                          setSyncing(true)
-                                          const newQty = parseInt(editPartForm.qty)
-                                          const diff = newQty - qty
-                                          if (diff < 0) {
-                                            const toRemove = items.filter(p => p.status === 'Available').slice(0, Math.abs(diff))
-                                            for (const p of toRemove) await supabase.from('parts').delete().eq('id', p.id)
-                                          } else if (diff > 0) {
-                                            const newParts = Array.from({ length: diff }, () => ({
-                                              lot_id: items[0].lot_id,
-                                              part_name: g.part_name,
-                                              brand: brand !== 'No Brand' ? brand : null,
-                                              color: color !== 'No Color' ? color : null,
-                                              cost: avgCost,
-                                              status: 'Available',
-                                              purchase_date: items[0].purchase_date,
-                                            }))
-                                            await supabase.from('parts').insert(newParts)
-                                          }
-                                          setEditPartId(null)
-                                          setSyncing(false)
-                                          onRefresh?.()
-                                        }}>✓</button>
-                                        <button className="btn btn-sm" onClick={() => setEditPartId(null)}>✕</button>
-                                      </div>
-                                    ) : (
-                                      <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
-                                        <span style={{ fontSize:22, fontWeight:700, color: stockColor, lineHeight:1 }}>{qty}</span>
-                                        <span style={{ fontSize:11, color:'var(--c-text3)' }}>in stock</span>
-                                      </div>
-                                    )}
+                                    <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+                                      <span style={{ fontSize:22, fontWeight:700, color: stockColor, lineHeight:1 }}>{qty}</span>
+                                      <span style={{ fontSize:11, color:'var(--c-text3)' }}>in stock</span>
+                                    </div>
                                     <div style={{ fontSize:11, color:'var(--c-text3)' }}>{fmtMoney(avgCost)} ea</div>
                                     {qty <= 2 && qty > 0 && (
                                       <div style={{ fontSize:10, color:'var(--c-amber)', fontWeight:600 }}>⚠ Low stock</div>
                                     )}
                                     {!isEditing && (
                                       <button className="btn btn-sm" style={{ marginTop:2, fontSize:11 }}
-                                        onClick={() => { setEditPartId(editKey); setEditPartForm({ qty }) }}>
-                                        Edit qty
+                                        onClick={() => {
+                                          setQuickEditGroup({ brand, part_name: g.part_name, color, items })
+                                          setQeForm({
+                                            name: g.part_name,
+                                            brand: brand !== 'No Brand' ? brand : '',
+                                            color: color !== 'No Color' ? color : '',
+                                            qty: String(items.length),
+                                            cost: String(avgCost || ''),
+                                          })
+                                          setShowQuickAdd(false)
+                                        }}>
+                                        ✏️ Edit
                                       </button>
                                     )}
                                   </div>
