@@ -505,96 +505,100 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing, onR
       {/* Parts Inventory */}
       {activeTab === 'inventory' && (
         <div>
-          {/* Quick Add / Edit Modal */}
-          {(showQuickAdd || quickEditGroup) && (
+          {/* Quick Add Modal */}
+          {showQuickAdd && (
             <div style={{
               position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000,
               display:'flex', alignItems:'center', justifyContent:'center', padding:16
-            }} onClick={e => { if (e.target === e.currentTarget) { setShowQuickAdd(false); setQuickEditGroup(null) } }}>
+            }} onClick={e => { if (e.target === e.currentTarget) setShowQuickAdd(false) }}>
               <div style={{ background:'var(--c-surface)', borderRadius:14, padding:24, width:'100%', maxWidth:460, boxShadow:'0 8px 40px rgba(0,0,0,0.3)' }}>
-                {showQuickAdd ? (
-                  <>
-                    <div style={{ fontWeight:700, fontSize:16, marginBottom:16 }}>➕ Add Part</div>
-                    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                      <div className="form-group">
-                        <label className="form-label">Part name *</label>
-                        <input type="text" placeholder="e.g. Studio 3 Earpads" value={quickForm.part_name} onChange={e => setQ('part_name', e.target.value)} autoFocus />
-                      </div>
-                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                        <div className="form-group">
-                          <label className="form-label">Brand</label>
-                          <input type="text" placeholder="e.g. Beats" value={quickForm.brand} onChange={e => setQ('brand', e.target.value)} />
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label">Color</label>
-                          <input type="text" placeholder="e.g. Black" value={quickForm.color} onChange={e => setQ('color', e.target.value)} />
-                        </div>
-                      </div>
-                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
-                        <div className="form-group">
-                          <label className="form-label">Quantity *</label>
-                          <input type="number" min="1" step="1" value={quickForm.quantity} onChange={e => setQ('quantity', e.target.value)} />
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label">Cost ea $</label>
-                          <input type="number" min="0" step="0.01" placeholder="0.00" value={quickForm.cost} onChange={e => setQ('cost', e.target.value)} />
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label">Status</label>
-                          <select value={quickForm.status} onChange={e => setQ('status', e.target.value)}>
-                            <option value="Available">Available</option>
-                            <option value="Needed">Needed</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div style={{ display:'flex', gap:8, marginTop:4 }}>
-                        <button className="btn btn-primary" onClick={submitQuickAdd} disabled={quickSaving || !quickForm.part_name.trim()}>
-                          {quickSaving ? 'Saving…' : 'Add part'}
-                        </button>
-                        <button className="btn" onClick={() => setShowQuickAdd(false)}>Cancel</button>
-                      </div>
+                <div style={{ fontWeight:700, fontSize:16, marginBottom:16 }}>➕ Add Part</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <div className="form-group">
+                    <label className="form-label">Part name *</label>
+                    <input type="text" placeholder="e.g. Studio 3 Earpads" value={quickForm.part_name} onChange={e => setQ('part_name', e.target.value)} autoFocus />
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                    <div className="form-group">
+                      <label className="form-label">Brand</label>
+                      <input type="text" placeholder="e.g. Beats" value={quickForm.brand} onChange={e => setQ('brand', e.target.value)} />
                     </div>
-                  </>
-                ) : quickEditGroup ? (
-                  <>
-                    <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>✏️ Edit Part Group</div>
-                    <div style={{ fontSize:12, color:'var(--c-text3)', marginBottom:16 }}>Changes apply to all {quickEditGroup.items.length} records in this group</div>
-                    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                      <div className="form-group">
-                        <label className="form-label">Part name *</label>
-                        <input type="text" value={qeForm.name} onChange={e => setQe('name', e.target.value)} autoFocus />
-                      </div>
-                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                        <div className="form-group">
-                          <label className="form-label">Brand</label>
-                          <input type="text" value={qeForm.brand} onChange={e => setQe('brand', e.target.value)} />
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label">Color</label>
-                          <input type="text" value={qeForm.color} onChange={e => setQe('color', e.target.value)} />
-                        </div>
-                      </div>
-                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                        <div className="form-group">
-                          <label className="form-label">Quantity</label>
-                          <input type="number" min="0" step="1" value={qeForm.qty} onChange={e => setQe('qty', e.target.value)} />
-                        </div>
-                        <div className="form-group">
-                          <label className="form-label">Cost ea $</label>
-                          <input type="number" min="0" step="0.01" value={qeForm.cost} onChange={e => setQe('cost', e.target.value)} />
-                        </div>
-                      </div>
-                      <div style={{ display:'flex', gap:8, marginTop:4 }}>
-                        <button className="btn btn-primary"
-                          onClick={() => saveQuickEditGroup(quickEditGroup, parseInt(qeForm.qty)||0, qeForm.cost, qeForm.name, qeForm.brand, qeForm.color)}
-                          disabled={!qeForm.name.trim()}>
-                          Save changes
-                        </button>
-                        <button className="btn" onClick={() => setQuickEditGroup(null)}>Cancel</button>
-                      </div>
+                    <div className="form-group">
+                      <label className="form-label">Color</label>
+                      <input type="text" placeholder="e.g. Black" value={quickForm.color} onChange={e => setQ('color', e.target.value)} />
                     </div>
-                  </>
-                ) : null}
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
+                    <div className="form-group">
+                      <label className="form-label">Quantity *</label>
+                      <input type="number" min="1" step="1" value={quickForm.quantity} onChange={e => setQ('quantity', e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Cost ea $</label>
+                      <input type="number" min="0" step="0.01" placeholder="0.00" value={quickForm.cost} onChange={e => setQ('cost', e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Status</label>
+                      <select value={quickForm.status} onChange={e => setQ('status', e.target.value)}>
+                        <option value="Available">Available</option>
+                        <option value="Needed">Needed</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                    <button className="btn btn-primary" onClick={submitQuickAdd} disabled={quickSaving || !quickForm.part_name.trim()}>
+                      {quickSaving ? 'Saving…' : 'Add part'}
+                    </button>
+                    <button className="btn" onClick={() => setShowQuickAdd(false)}>Cancel</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Quick Edit Modal */}
+          {quickEditGroup && (
+            <div style={{
+              position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000,
+              display:'flex', alignItems:'center', justifyContent:'center', padding:16
+            }} onClick={e => { if (e.target === e.currentTarget) setQuickEditGroup(null) }}>
+              <div style={{ background:'var(--c-surface)', borderRadius:14, padding:24, width:'100%', maxWidth:460, boxShadow:'0 8px 40px rgba(0,0,0,0.3)' }}>
+                <div style={{ fontWeight:700, fontSize:16, marginBottom:4 }}>✏️ Edit Part Group</div>
+                <div style={{ fontSize:12, color:'var(--c-text3)', marginBottom:16 }}>Changes apply to all {quickEditGroup.items.length} records in this group</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <div className="form-group">
+                    <label className="form-label">Part name *</label>
+                    <input type="text" value={qeForm.name} onChange={e => setQe('name', e.target.value)} autoFocus />
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                    <div className="form-group">
+                      <label className="form-label">Brand</label>
+                      <input type="text" value={qeForm.brand} onChange={e => setQe('brand', e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Color</label>
+                      <input type="text" value={qeForm.color} onChange={e => setQe('color', e.target.value)} />
+                    </div>
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                    <div className="form-group">
+                      <label className="form-label">Quantity</label>
+                      <input type="number" min="0" step="1" value={qeForm.qty} onChange={e => setQe('qty', e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Cost ea $</label>
+                      <input type="number" min="0" step="0.01" value={qeForm.cost} onChange={e => setQe('cost', e.target.value)} />
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:8, marginTop:4 }}>
+                    <button className="btn btn-primary"
+                      onClick={() => saveQuickEditGroup(quickEditGroup, parseInt(qeForm.qty)||0, qeForm.cost, qeForm.name, qeForm.brand, qeForm.color)}
+                      disabled={!qeForm.name.trim()}>
+                      Save changes
+                    </button>
+                    <button className="btn" onClick={() => setQuickEditGroup(null)}>Cancel</button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
