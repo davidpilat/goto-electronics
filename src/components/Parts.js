@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 const today = () => new Date().toISOString().slice(0, 10)
 const fmtMoney = n => '$' + Math.abs(parseFloat(n)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })
 
-export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
+export default function Parts({ parts, partLots, inventory = [], setSyncing, onRefresh }) {
   const [activeTab, setActiveTab] = useState('inventory')
 
   // Lot header form
@@ -96,6 +96,7 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
     setLotHeader({ purchase_date: today(), shipping: '', tariffs: '', vendor: '', notes: '' })
     setLineItems([{ part_name: '', brand: '', color: '', quantity: '', price: '' }])
     setAddingLot(false); setSyncing(false)
+    onRefresh?.()
   }
 
   const usePart = async () => {
@@ -133,6 +134,7 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
     setUseForm({ serial_number: '', notes: '' })
     setUseLines([{ part_id: '', qty: 1 }])
     setUsingPart(false); setSyncing(false)
+    onRefresh?.()
   }
 
   const deletePart = async (id) => {
@@ -140,6 +142,7 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
     setSyncing(true)
     await supabase.from('parts').delete().eq('id', id)
     setSyncing(false)
+    onRefresh?.()
   }
 
   const savePart = async (id) => {
@@ -156,6 +159,7 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
     }).eq('id', id)
     setEditPartId(null)
     setSyncing(false)
+    onRefresh?.()
   }
 
   const deleteLot = async (id) => {
@@ -164,6 +168,7 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
     await supabase.from('parts').delete().eq('lot_id', id)
     await supabase.from('part_lots').delete().eq('id', id)
     setSyncing(false)
+    onRefresh?.()
   }
 
   const addPartsToLot = async (lot) => {
@@ -200,6 +205,7 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
     setAddingToLot(null)
     setAddToLotLine({ part_name:'', color:'', quantity:'', price:'' })
     setSyncing(false)
+    onRefresh?.()
   }
 
   const availableParts = parts.filter(p => p.status === 'Available')
@@ -535,6 +541,7 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
                                           }
                                           setEditPartId(null)
                                           setSyncing(false)
+                                          onRefresh?.()
                                         }}>✓</button>
                                         <button className="btn btn-sm" onClick={() => setEditPartId(null)}>✕</button>
                                       </div>
@@ -643,6 +650,7 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
                                   }
                                   setEditPartId(null)
                                   setSyncing(false)
+                                  onRefresh?.()
                                 }}>✓</button>
                                 <button className="btn btn-sm" onClick={() => setEditPartId(null)}>✕</button>
                               </div>
@@ -670,23 +678,43 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing }) {
                                   <button className="btn btn-primary btn-sm" style={{ fontSize:11 }} onClick={async () => {
                                     setSyncing(true)
                                     const t = g.items[0]
-                                    const toConvert = Math.min(receiveQty, needed)
-                                    // Convert Needed rows to Available
-                                    const toUpdate = g.items.slice(0, toConvert)
-                                    for (const p of toUpdate) {
-                                      await supabase.from('parts').update({ status: 'Available' }).eq('id', p.id)
+
+                                    // Find an existing Available part with the same brand/part_name/color
+                                    // to use as the template for new records (ensures grouping key matches)
+                                    const existingAvailable = parts.find(p =>
+                                      p.status === 'Available' &&
+                                      p.part_name === t.part_name &&
+                                      (p.brand || null) === (t.brand || null) &&
+                                      (p.color || null) === (t.color || null)
+                                    )
+
+                                    // Use existing Available part as template if found,
+                                    // otherwise fall back to the Needed row's values
+                                    const template = existingAvailable || t
+
+                                    // Delete ALL the Needed rows for this part/brand/color group
+                                    for (const p of g.items) {
+                                      await supabase.from('parts').delete().eq('id', p.id)
                                     }
-                                    // If receiving more than needed, add extra Available rows
-                                    const extra = receiveQty - toConvert
-                                    if (extra > 0) {
-                                      await supabase.from('parts').insert(Array.from({ length: extra }, () => ({
-                                        part_name: t.part_name, brand: t.brand||null, color: t.color||null,
-                                        cost: t.cost||0, status:'Available', purchase_date: today(),
-                                      })))
-                                    }
+
+                                    // Insert brand-new Available rows using exact same field values
+                                    // as existing Available parts so they group correctly
+                                    await supabase.from('parts').insert(
+                                      Array.from({ length: receiveQty }, () => ({
+                                        part_name: template.part_name,
+                                        brand: template.brand || null,
+                                        color: template.color || null,
+                                        cost: template.cost || 0,
+                                        status: 'Available',
+                                        purchase_date: today(),
+                                        lot_id: template.lot_id || null,
+                                      }))
+                                    )
+
                                     setReceivePartId(null)
                                     setReceiveQty(1)
                                     setSyncing(false)
+                                    onRefresh?.()
                                   }}>✓ Receive</button>
                                   <button className="btn btn-sm" style={{ fontSize:11 }} onClick={() => { setReceivePartId(null); setReceiveQty(1) }}>Cancel</button>
                                 </div>
