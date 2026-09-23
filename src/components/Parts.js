@@ -691,8 +691,7 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing, onR
                                     {qty <= 2 && qty > 0 && (
                                       <div style={{ fontSize:10, color:'var(--c-amber)', fontWeight:600 }}>⚠ Low stock</div>
                                     )}
-                                    {!isEditing && (
-                                      <button className="btn btn-sm" style={{ marginTop:2, fontSize:11 }}
+                                    <button className="btn btn-sm" style={{ marginTop:2, fontSize:11 }}
                                         onClick={() => {
                                           setQuickEditGroup({ brand, part_name: g.part_name, color, items })
                                           setQeForm({
@@ -706,7 +705,6 @@ export default function Parts({ parts, partLots, inventory = [], setSyncing, onR
                                         }}>
                                         ✏️ Edit
                                       </button>
-                                    )}
                                   </div>
                                 )
                               })}
