@@ -178,10 +178,12 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
           { label:'Realized profit', value:fmtMoney(realizedProfit), color:realizedProfit>=0?'var(--c-green)':'var(--c-red)' },
           { label:'Avg margin', value:`${avgMargin}%`, color:parseFloat(avgMargin)>=20?'var(--c-green)':'var(--c-amber)' },
           { label:'Total orders', value:totals.orders, color:'var(--c-text)' },
+          { label:'Inventory value (hist. price)', value:fmtMoney(invPotentialRevenue), color:'var(--c-brand)', sub: invPotentialRevenue > 0 ? `${inStockItems.length} items in stock` : 'No history yet' },
         ].map(m => (
           <div key={m.label} className="stat-card">
             <div className="stat-label">{m.label}</div>
             <div className="stat-value" style={{ fontSize:22, color:m.color }}>{m.value}</div>
+            {m.sub && <div className="stat-sub">{m.sub}</div>}
           </div>
         ))}
       </div>
