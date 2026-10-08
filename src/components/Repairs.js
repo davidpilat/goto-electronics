@@ -128,6 +128,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
   const updateStatus = async (id, status) => {
     setSyncing(true)
     const updates = { status }
+    if (status === 'Complete') updates.completed_date = today()
     if (status === 'Shipped') updates.shipped_date = today()
     await supabase.from('repair_orders').update(updates).eq('id', id)
     setSyncing(false)
@@ -159,6 +160,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
       notes: editForm.notes?.trim() || null,
       received_date: editForm.received_date,
       delivered_date: editForm.delivered_date || null,
+      completed_date: editForm.completed_date || null,
       tracking_number: editForm.tracking_number?.trim() || null,
       incoming_tracking: editForm.incoming_tracking?.trim() || null,
       status: editForm.status,
@@ -506,6 +508,10 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                             <input type="date" value={editForm.received_date||''} onChange={e => setEditForm(p=>({...p,received_date:e.target.value}))} />
                           </div>
                           <div className="form-group" style={{ margin:0 }}>
+                            <label className="form-label">Completed date</label>
+                            <input type="date" value={editForm.completed_date||''} onChange={e => setEditForm(p=>({...p,completed_date:e.target.value}))} />
+                          </div>
+                          <div className="form-group" style={{ margin:0 }}>
                             <label className="form-label">Delivered date</label>
                             <input type="date" value={editForm.delivered_date||''} onChange={e => setEditForm(p=>({...p,delivered_date:e.target.value}))} />
                           </div>
@@ -542,8 +548,9 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                               {r.serial_number && <span style={{ marginLeft:8, fontFamily:"'DM Mono',monospace", color:'var(--c-text3)' }}>{r.serial_number}</span>}
                             </div>
                             {r.customer_email && <div style={{ fontSize:11, color:'var(--c-text3)' }}>{r.customer_email}</div>}
-                            {(r.delivered_date || r.tracking_number || r.incoming_tracking) && (
+                            {(r.completed_date || r.delivered_date || r.tracking_number || r.incoming_tracking) && (
                               <div style={{ fontSize:11, color:'var(--c-text3)', display:'flex', gap:12, flexWrap:'wrap' }}>
+                                {r.completed_date && <span>✅ Completed: {r.completed_date}</span>}
                                 {r.delivered_date && <span>Delivered: {r.delivered_date}</span>}
                                 {r.incoming_tracking && (
                                   <span style={{ fontFamily:"'DM Mono',monospace" }}>📥 {r.incoming_tracking}</span>
