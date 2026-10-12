@@ -441,6 +441,53 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
         ))}
       </div>
 
+      {/* Model summary */}
+      {(() => {
+        const modelMap = {}
+        inventory.forEach(item => {
+          const key = item.name
+          if (!modelMap[key]) modelMap[key] = { name: item.name, inStock: 0, listed: 0, sold: 0, scrapped: 0, total: 0 }
+          modelMap[key].total++
+          if (item.status === 'In Stock') modelMap[key].inStock++
+          else if (item.status === 'Listed') modelMap[key].listed++
+          else if (item.status === 'Sold') modelMap[key].sold++
+          else if (item.status === 'Scrapped') modelMap[key].scrapped++
+        })
+        const rows = Object.values(modelMap).sort((a, b) => (b.inStock + b.listed) - (a.inStock + a.listed))
+        if (rows.length === 0) return null
+        return (
+          <div className="card" style={{ marginBottom:'1rem' }}>
+            <div className="card-title">Units by model</div>
+            <div style={{ overflowX:'auto' }}>
+              <table className="data-table" style={{ fontSize:13 }}>
+                <thead>
+                  <tr>
+                    <th>Model</th>
+                    <th>In Stock</th>
+                    <th>Listed</th>
+                    <th>Sold</th>
+                    <th>Scrapped</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.name}>
+                      <td style={{ fontWeight:500 }}>{r.name}</td>
+                      <td><span className="badge badge-green">{r.inStock}</span></td>
+                      <td>{r.listed > 0 ? <span className="badge badge-brand">{r.listed}</span> : <span style={{ color:'var(--c-text3)' }}>—</span>}</td>
+                      <td style={{ color:'var(--c-text2)' }}>{r.sold > 0 ? r.sold : <span style={{ color:'var(--c-text3)' }}>—</span>}</td>
+                      <td style={{ color:'var(--c-text3)' }}>{r.scrapped > 0 ? r.scrapped : '—'}</td>
+                      <td style={{ fontWeight:600, color:'var(--c-text)' }}>{r.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* CSV Import */}
       <div className="card">
         <div className="card-header">
