@@ -85,7 +85,7 @@ const emptyRepairForm = () => ({
   partsUsed: [],   // [{ part_id, part_name, brand, color, qty, unit_cost }]
 })
 
-export default function Inventory({ inventory, parts = [], repairReqs = [], setSyncing, onRefresh }) {
+export default function Inventory({ inventory, parts = [], repairReqs = [], repairOrders = [], setSyncing, onRefresh }) {
   const [form, setForm] = useState({
     name: '', sku: '', serial_number: '', condition: 'Good',
     purchase_cost: '', status: 'In Stock', purchase_date: today(), notes: ''
@@ -110,6 +110,82 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
   const [repairOpen, setRepairOpen] = useState({})       // { [itemId]: bool }
   const [repairForms, setRepairForms] = useState({})     // { [itemId]: repairFormState }
   const [repairSaving, setRepairSaving] = useState({})   // { [itemId]: bool }
+
+  // Pull Part state
+  const [pullOpen, setPullOpen] = useState({})           // { [itemId]: bool }
+  const [pullForms, setPullForms] = useState({})         // { [itemId]: pullFormState }
+  const [pullSaving, setPullSaving] = useState({})       // { [itemId]: bool }
+
+  const emptyPullForm = () => ({
+    part_name: '',
+    brand: '',
+    color: '',
+    price_charged: '',
+    destination: 'repair',   // 'repair' | 'sale'
+    repair_order_id: '',
+    sale_platform: 'Other',
+    sale_date: today(),
+    notes: '',
+  })
+
+  const getPullForm = (itemId) => pullForms[itemId] || emptyPullForm()
+  const setPullField = (itemId, key, val) =>
+    setPullForms(prev => ({ ...prev, [itemId]: { ...(prev[itemId] || emptyPullForm()), [key]: val } }))
+
+  const togglePull = (itemId) => {
+    setPullOpen(prev => {
+      const open = !prev[itemId]
+      if (open && !pullForms[itemId]) setPullForms(p => ({ ...p, [itemId]: emptyPullForm() }))
+      return { ...prev, [itemId]: open }
+    })
+  }
+
+  const submitPull = async (item) => {
+    const pf = getPullForm(item.id)
+    if (!pf.part_name.trim()) return
+    setPullSaving(prev => ({ ...prev, [item.id]: true }))
+    setSyncing(true)
+
+    const charged = parseFloat(pf.price_charged) || 0
+    const noteText = pf.notes.trim() || null
+
+    if (pf.destination === 'repair') {
+      // Route revenue to repair order — add a repair_order_parts record with the charged price
+      if (pf.repair_order_id) {
+        await supabase.from('repair_order_parts').insert({
+          repair_order_id: pf.repair_order_id,
+          part_name: pf.part_name.trim(),
+          brand: pf.brand.trim() || null,
+          color: pf.color.trim() || null,
+          cost: charged,
+        })
+      }
+    } else {
+      // Route revenue to Orders — create a standalone part sale order
+      await supabase.from('orders').insert({
+        sale_date: pf.sale_date,
+        item_name: `${pf.brand.trim() ? pf.brand.trim() + ' ' : ''}${pf.part_name.trim()}${pf.color.trim() ? ' — ' + pf.color.trim() : ''} (pulled from ${item.name})`,
+        platform: pf.sale_platform,
+        gross_sale: charged,
+        selling_fee: 0,
+        ad_fee: 0,
+        shipping_cost: 0,
+        item_cost: 0,
+        notes: noteText || `Part pulled from inventory: ${item.name}${item.serial_number ? ' SN:' + item.serial_number : ''}`,
+        inventory_id: item.id,
+      })
+    }
+
+    // Mark the donor inventory item as Scrapped
+    await supabase.from('inventory').update({ status: 'Scrapped' }).eq('id', item.id)
+
+    setSyncing(false)
+    setPullSaving(prev => ({ ...prev, [item.id]: false }))
+    setPullOpen(prev => ({ ...prev, [item.id]: false }))
+    setPullForms(prev => ({ ...prev, [item.id]: emptyPullForm() }))
+    onRefresh?.()
+  }
+
   const fileRef = useRef()
 
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
@@ -1010,6 +1086,17 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                             ✓ Repaired
                                           </button>
                                         )}
+                                        {/* Pull Part button — only for non-scrapped items */}
+                                        {item.status !== 'Scrapped' && (
+                                          <button
+                                            className="btn btn-sm"
+                                            style={{ height:26, padding:'0 8px', fontSize:11, background: pullOpen[item.id] ? '#7c3aed' : undefined, color: pullOpen[item.id] ? '#fff' : 'var(--c-purple)' }}
+                                            onClick={() => togglePull(item.id)}
+                                            title="Pull a part from this unit"
+                                          >
+                                            🪛 Pull Part
+                                          </button>
+                                        )}
                                         <button className="btn btn-sm" style={{ height:26, padding:'0 8px', fontSize:11 }}
                                           onClick={() => setExpandedParts(prev => ({ ...prev, [item.id]: !isOpen }))}>
                                           Parts{itemReqs.length > 0 ? ` (${itemReqs.length})` : ' +'}
@@ -1175,6 +1262,149 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], setS
                                       </td>
                                     </tr>
                                   )}
+
+                                  {/* Pull Part panel */}
+                                  {pullOpen[item.id] && item.status !== 'Scrapped' && (() => {
+                                    const pf = getPullForm(item.id)
+                                    const PLATFORMS = ['eBay','Facebook Marketplace','Facebook','Amazon','Craigslist','OfferUp','Other']
+                                    const activeRepairs = repairOrders.filter(r => r.status !== 'Shipped')
+                                    return (
+                                      <tr style={{ background:'rgba(124,58,237,0.04)' }}>
+                                        <td colSpan={9} style={{ padding:'12px 14px 16px 14px', borderBottom:'2px solid #7c3aed' }}>
+                                          <div style={{ maxWidth:640 }}>
+                                            <div style={{ fontSize:13, fontWeight:600, color:'#7c3aed', marginBottom:10 }}>
+                                              🪛 Pull Part from — {item.name}{item.serial_number ? <span style={{ fontSize:11, fontWeight:400, color:'var(--c-text3)', marginLeft:6 }}>SN: {item.serial_number}</span> : ''}
+                                            </div>
+                                            <div style={{ fontSize:12, color:'var(--c-amber)', marginBottom:12, padding:'6px 10px', background:'rgba(217,119,6,0.08)', borderRadius:6, border:'1px solid rgba(217,119,6,0.3)' }}>
+                                              ⚠ This unit will be marked <strong>Scrapped</strong> when you save.
+                                            </div>
+
+                                            {/* Part details */}
+                                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:10 }}>
+                                              <div>
+                                                <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Part name *</div>
+                                                <input type="text" placeholder="e.g. Bluetooth Board"
+                                                  value={pf.part_name}
+                                                  onChange={e => setPullField(item.id, 'part_name', e.target.value)}
+                                                  style={{ height:32, fontSize:12, width:'100%' }} />
+                                              </div>
+                                              <div>
+                                                <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Brand</div>
+                                                <input type="text" placeholder={item.name.split(' ')[0]}
+                                                  value={pf.brand}
+                                                  onChange={e => setPullField(item.id, 'brand', e.target.value)}
+                                                  style={{ height:32, fontSize:12, width:'100%' }} />
+                                              </div>
+                                              <div>
+                                                <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Color (optional)</div>
+                                                <input type="text" placeholder="e.g. Black"
+                                                  value={pf.color}
+                                                  onChange={e => setPullField(item.id, 'color', e.target.value)}
+                                                  style={{ height:32, fontSize:12, width:'100%' }} />
+                                              </div>
+                                            </div>
+
+                                            {/* Price + destination */}
+                                            <div style={{ display:'grid', gridTemplateColumns:'120px 1fr', gap:8, marginBottom:10 }}>
+                                              <div>
+                                                <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Price charged $</div>
+                                                <input type="number" placeholder="0.00" min="0" step="0.01"
+                                                  value={pf.price_charged}
+                                                  onChange={e => setPullField(item.id, 'price_charged', e.target.value)}
+                                                  style={{ height:32, fontSize:12, width:'100%' }} />
+                                              </div>
+                                              <div>
+                                                <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Revenue destination</div>
+                                                <div style={{ display:'flex', gap:8 }}>
+                                                  <label style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, cursor:'pointer' }}>
+                                                    <input type="radio" name={`dest-${item.id}`} value="repair"
+                                                      checked={pf.destination === 'repair'}
+                                                      onChange={() => setPullField(item.id, 'destination', 'repair')} />
+                                                    Repairs page (used in a repair job)
+                                                  </label>
+                                                  <label style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, cursor:'pointer' }}>
+                                                    <input type="radio" name={`dest-${item.id}`} value="sale"
+                                                      checked={pf.destination === 'sale'}
+                                                      onChange={() => setPullField(item.id, 'destination', 'sale')} />
+                                                    Orders page (sold separately)
+                                                  </label>
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            {/* Repair order picker */}
+                                            {pf.destination === 'repair' && (
+                                              <div style={{ marginBottom:10 }}>
+                                                <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Link to repair order</div>
+                                                <select
+                                                  value={pf.repair_order_id}
+                                                  onChange={e => setPullField(item.id, 'repair_order_id', e.target.value)}
+                                                  style={{ height:32, fontSize:12, width:'100%', maxWidth:420 }}
+                                                >
+                                                  <option value="">— Select repair order (optional) —</option>
+                                                  {activeRepairs.map(r => (
+                                                    <option key={r.id} value={r.id}>
+                                                      {r.order_number || r.customer_name || r.id} {r.make ? '· ' + r.make : ''} {r.model || ''} {r.customer_name && r.order_number ? '· ' + r.customer_name : ''}
+                                                    </option>
+                                                  ))}
+                                                </select>
+                                                {activeRepairs.length === 0 && (
+                                                  <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:4 }}>No active repair orders — create one in the Repairs tab first.</div>
+                                                )}
+                                              </div>
+                                            )}
+
+                                            {/* Sale details */}
+                                            {pf.destination === 'sale' && (
+                                              <div style={{ display:'grid', gridTemplateColumns:'1fr 140px', gap:8, marginBottom:10 }}>
+                                                <div>
+                                                  <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Platform</div>
+                                                  <select value={pf.sale_platform}
+                                                    onChange={e => setPullField(item.id, 'sale_platform', e.target.value)}
+                                                    style={{ height:32, fontSize:12, width:'100%' }}>
+                                                    {PLATFORMS.map(p => <option key={p}>{p}</option>)}
+                                                  </select>
+                                                </div>
+                                                <div>
+                                                  <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Sale date</div>
+                                                  <input type="date" value={pf.sale_date}
+                                                    onChange={e => setPullField(item.id, 'sale_date', e.target.value)}
+                                                    style={{ height:32, fontSize:12, width:'100%' }} />
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            {/* Notes */}
+                                            <div style={{ marginBottom:12 }}>
+                                              <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:3 }}>Notes (optional)</div>
+                                              <input type="text" placeholder="Any notes about this part pull…"
+                                                value={pf.notes}
+                                                onChange={e => setPullField(item.id, 'notes', e.target.value)}
+                                                style={{ height:32, fontSize:12, width:'100%' }} />
+                                            </div>
+
+                                            {/* Actions */}
+                                            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                                              <button
+                                                className="btn btn-primary"
+                                                style={{ fontSize:12, background:'#7c3aed', borderColor:'#7c3aed' }}
+                                                onClick={() => submitPull(item)}
+                                                disabled={!pf.part_name.trim() || pullSaving[item.id]}
+                                              >
+                                                {pullSaving[item.id] ? 'Saving…' : '🪛 Pull Part & Scrap Unit'}
+                                              </button>
+                                              <button className="btn btn-sm" onClick={() => togglePull(item.id)}>Cancel</button>
+                                              {pf.price_charged && (
+                                                <span style={{ fontSize:11, color:'var(--c-text3)' }}>
+                                                  {fmtMoney(pf.price_charged)} → {pf.destination === 'repair' ? 'Repairs' : 'Orders'}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )
+                                  })()}
 
                                   {/* Parts requirements panel */}
                                   {isOpen && (
