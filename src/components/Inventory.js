@@ -85,7 +85,7 @@ const emptyRepairForm = () => ({
   partsUsed: [],   // [{ part_id, part_name, brand, color, qty, unit_cost }]
 })
 
-export default function Inventory({ inventory, parts = [], repairReqs = [], repairOrders = [], setSyncing, onRefresh }) {
+export default function Inventory({ inventory, orders = [], parts = [], repairReqs = [], repairOrders = [], setSyncing, onRefresh }) {
   const [form, setForm] = useState({
     name: '', sku: '', serial_number: '', condition: 'Good',
     purchase_cost: '', status: 'In Stock', purchase_date: today(), notes: ''
@@ -115,6 +115,9 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], repa
   const [pullOpen, setPullOpen] = useState({})           // { [itemId]: bool }
   const [pullForms, setPullForms] = useState({})         // { [itemId]: pullFormState }
   const [pullSaving, setPullSaving] = useState({})       // { [itemId]: bool }
+
+  // Top-level tab
+  const [inventoryTab, setInventoryTab] = useState('inventory')
 
   const emptyPullForm = () => ({
     part_name: '',
@@ -173,6 +176,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], repa
         item_cost: 0,
         notes: noteText || `Part pulled from inventory: ${item.name}${item.serial_number ? ' SN:' + item.serial_number : ''}`,
         inventory_id: item.id,
+        order_type: 'part_sale',
       })
     }
 
@@ -499,8 +503,191 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], repa
   const availableParts = parts.filter(p => p.status === 'Available')
   const uniqueBrands = [...new Set(availableParts.map(p => p.brand).filter(Boolean))].sort()
 
+  // Parts History data — orders with order_type = 'part_sale'
+  const partSaleOrders = orders.filter(o => o.order_type === 'part_sale')
+  const partSaleTotal = partSaleOrders.reduce((s, o) => s + parseFloat(o.gross_sale || 0), 0)
+
   return (
     <div>
+      {/* Tab switcher */}
+      <div style={{ display:'flex', gap:4, marginBottom:'1rem', borderBottom:'2px solid var(--c-border)', paddingBottom:0 }}>
+        {[
+          { id: 'inventory', label: '📦 Inventory' },
+          { id: 'parts_history', label: `🪛 Parts Pulled${partSaleOrders.length > 0 ? ' (' + partSaleOrders.length + ')' : ''}` },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setInventoryTab(t.id)}
+            style={{
+              padding:'8px 16px', fontSize:13, fontWeight:600, border:'none', cursor:'pointer',
+              background:'none', borderBottom: inventoryTab === t.id ? '2px solid var(--c-brand)' : '2px solid transparent',
+              color: inventoryTab === t.id ? 'var(--c-brand)' : 'var(--c-text2)',
+              marginBottom:-2,
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Parts History tab */}
+      {inventoryTab === 'parts_history' && (() => {
+        // Group by donor unit (inventory_id)
+        const byUnit = {}
+        partSaleOrders.forEach(o => {
+          const key = o.inventory_id || '__unknown__'
+          if (!byUnit[key]) {
+            const inv = inventory.find(i => i.id === key)
+            byUnit[key] = { inv, orders: [] }
+          }
+          byUnit[key].orders.push(o)
+        })
+        const unitEntries = Object.entries(byUnit).sort((a, b) => {
+          // Sort by most recent pull
+          const aMax = Math.max(...a[1].orders.map(o => new Date(o.sale_date || 0)))
+          const bMax = Math.max(...b[1].orders.map(o => new Date(o.sale_date || 0)))
+          return bMax - aMax
+        })
+
+        return (
+          <div>
+            {/* Summary stats */}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:'1rem' }}>
+              {[
+                { label:'Total parts sold', value: partSaleOrders.length, color:'var(--c-purple)' },
+                { label:'Total revenue', value: fmtMoney(partSaleTotal), color:'var(--c-green)' },
+                { label:'Units pulled from', value: unitEntries.length, color:'var(--c-brand)' },
+              ].map(m => (
+                <div key={m.label} className="stat-card">
+                  <div className="stat-label">{m.label}</div>
+                  <div className="stat-value" style={{ fontSize:20, color:m.color }}>{m.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {partSaleOrders.length === 0 ? (
+              <div className="card">
+                <div className="empty">
+                  <div className="empty-icon">🪛</div>
+                  No parts pulled yet. Use the <strong>Pull Part</strong> button on any inventory item to log a part sale.
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* All pulls table */}
+                <div className="card" style={{ marginBottom:'1rem' }}>
+                  <div className="card-title" style={{ marginBottom:12 }}>All parts pulled — sold separately</div>
+                  <div style={{ overflowX:'auto' }}>
+                    <table className="data-table" style={{ fontSize:12 }}>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Part</th>
+                          <th>Donor unit</th>
+                          <th>Platform</th>
+                          <th>Revenue</th>
+                          <th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...partSaleOrders].sort((a, b) => new Date(b.sale_date) - new Date(a.sale_date)).map(o => {
+                          const inv = inventory.find(i => i.id === o.inventory_id)
+                          return (
+                            <tr key={o.id}>
+                              <td style={{ fontFamily:"'DM Mono',monospace", fontSize:11, whiteSpace:'nowrap' }}>
+                                {o.sale_date || '—'}
+                              </td>
+                              <td style={{ fontWeight:500 }}>
+                                {o.item_name?.replace(/ \(pulled from .*?\)$/, '') || '—'}
+                              </td>
+                              <td style={{ fontSize:11, color:'var(--c-text2)' }}>
+                                {inv ? (
+                                  <span>
+                                    {inv.name}
+                                    {inv.serial_number && <span style={{ color:'var(--c-text3)', marginLeft:4 }}>SN: {inv.serial_number}</span>}
+                                  </span>
+                                ) : (
+                                  <span style={{ color:'var(--c-text3)' }}>Unknown unit</span>
+                                )}
+                              </td>
+                              <td style={{ fontSize:11 }}>
+                                <span className="badge badge-gray">{o.platform || '—'}</span>
+                              </td>
+                              <td style={{ fontFamily:"'DM Mono',monospace", fontWeight:600, color:'var(--c-green)' }}>
+                                {fmtMoney(o.gross_sale)}
+                              </td>
+                              <td style={{ fontSize:11, color:'var(--c-text3)', maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                                {o.notes || '—'}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ borderTop:'2px solid var(--c-border)' }}>
+                          <td colSpan={4} style={{ fontSize:12, fontWeight:600, color:'var(--c-text2)', paddingTop:8 }}>Total</td>
+                          <td style={{ fontFamily:"'DM Mono',monospace", fontWeight:700, color:'var(--c-green)', paddingTop:8 }}>
+                            {fmtMoney(partSaleTotal)}
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+
+                {/* By donor unit breakdown */}
+                <div className="card">
+                  <div className="card-title" style={{ marginBottom:12 }}>By donor unit</div>
+                  <div style={{ overflowX:'auto' }}>
+                    <table className="data-table" style={{ fontSize:12 }}>
+                      <thead>
+                        <tr>
+                          <th>Unit</th>
+                          <th>Serial #</th>
+                          <th>Status</th>
+                          <th>Parts pulled</th>
+                          <th>Revenue</th>
+                          <th>Last pull</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {unitEntries.map(([key, { inv, orders: uOrders }]) => {
+                          const uRevenue = uOrders.reduce((s, o) => s + parseFloat(o.gross_sale || 0), 0)
+                          const lastPull = uOrders.map(o => o.sale_date).filter(Boolean).sort().reverse()[0]
+                          return (
+                            <tr key={key}>
+                              <td style={{ fontWeight:500 }}>
+                                {inv ? inv.name : <span style={{ color:'var(--c-text3)' }}>Deleted unit</span>}
+                              </td>
+                              <td style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:'var(--c-text3)' }}>
+                                {inv?.serial_number || '—'}
+                              </td>
+                              <td>
+                                {inv ? statusBadge(inv.status) : <span style={{ color:'var(--c-text3)' }}>—</span>}
+                              </td>
+                              <td style={{ color:'var(--c-text2)' }}>{uOrders.length}</td>
+                              <td style={{ fontFamily:"'DM Mono',monospace", fontWeight:600, color:'var(--c-green)' }}>
+                                {fmtMoney(uRevenue)}
+                              </td>
+                              <td style={{ fontSize:11, color:'var(--c-text3)', fontFamily:"'DM Mono',monospace" }}>
+                                {lastPull || '—'}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* Main Inventory tab */}
+      {inventoryTab === 'inventory' && <div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10, marginBottom:'1rem' }}>
         {[
           { label:'In stock', value:inStock, color:'var(--c-green)' },
@@ -1497,6 +1684,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], repa
             })()
         }
       </div>
+      </div>}
     </div>
   )
 }
