@@ -176,8 +176,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], repa
       })
     }
 
-    // Mark the donor inventory item as Scrapped
-    await supabase.from('inventory').update({ status: 'Scrapped' }).eq('id', item.id)
+    // Do NOT auto-scrap — user scraps the unit manually when done pulling parts
 
     setSyncing(false)
     setPullSaving(prev => ({ ...prev, [item.id]: false }))
@@ -1101,6 +1100,19 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], repa
                                           onClick={() => setExpandedParts(prev => ({ ...prev, [item.id]: !isOpen }))}>
                                           Parts{itemReqs.length > 0 ? ` (${itemReqs.length})` : ' +'}
                                         </button>
+                                        {item.status !== 'Scrapped' && item.status !== 'Sold' && (
+                                          <button className="btn btn-sm" style={{ height:26, padding:'0 8px', fontSize:11, color:'var(--c-red)' }}
+                                            onClick={async () => {
+                                              if (!window.confirm('Mark this unit as Scrapped?')) return
+                                              setSyncing(true)
+                                              await supabase.from('inventory').update({ status: 'Scrapped' }).eq('id', item.id)
+                                              setSyncing(false)
+                                              onRefresh?.()
+                                            }}
+                                            title="Mark unit as Scrapped">
+                                            🗑 Scrap
+                                          </button>
+                                        )}
                                         <button className="btn btn-sm" style={{ height:26, padding:'0 8px', fontSize:11 }}
                                           onClick={() => { setEditId(item.id); setEditForm({...item}) }}>Edit</button>
                                         <button className="btn btn-sm btn-danger" style={{ height:26, padding:'0 6px', fontSize:11 }}
@@ -1275,8 +1287,8 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], repa
                                             <div style={{ fontSize:13, fontWeight:600, color:'#7c3aed', marginBottom:10 }}>
                                               🪛 Pull Part from — {item.name}{item.serial_number ? <span style={{ fontSize:11, fontWeight:400, color:'var(--c-text3)', marginLeft:6 }}>SN: {item.serial_number}</span> : ''}
                                             </div>
-                                            <div style={{ fontSize:12, color:'var(--c-amber)', marginBottom:12, padding:'6px 10px', background:'rgba(217,119,6,0.08)', borderRadius:6, border:'1px solid rgba(217,119,6,0.3)' }}>
-                                              ⚠ This unit will be marked <strong>Scrapped</strong> when you save.
+                                            <div style={{ fontSize:12, color:'var(--c-text3)', marginBottom:12, padding:'6px 10px', background:'var(--c-surface2)', borderRadius:6, border:'1px solid var(--c-border)' }}>
+                                              You can pull multiple parts from this unit over time. Scrap the unit manually when you're done with it.
                                             </div>
 
                                             {/* Part details */}
@@ -1391,7 +1403,7 @@ export default function Inventory({ inventory, parts = [], repairReqs = [], repa
                                                 onClick={() => submitPull(item)}
                                                 disabled={!pf.part_name.trim() || pullSaving[item.id]}
                                               >
-                                                {pullSaving[item.id] ? 'Saving…' : '🪛 Pull Part & Scrap Unit'}
+                                                {pullSaving[item.id] ? 'Saving…' : '🪛 Pull Part'}
                                               </button>
                                               <button className="btn btn-sm" onClick={() => togglePull(item.id)}>Cancel</button>
                                               {pf.price_charged && (
