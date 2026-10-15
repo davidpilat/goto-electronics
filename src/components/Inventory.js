@@ -85,7 +85,7 @@ const emptyRepairForm = () => ({
   partsUsed: [],   // [{ part_id, part_name, brand, color, qty, unit_cost }]
 })
 
-export default function Inventory({ inventory, orders = [], parts = [], repairReqs = [], repairOrders = [], setSyncing, onRefresh }) {
+export default function Inventory({ inventory, orders = [], parts = [], repairReqs = [], repairOrders = [], repairOrderParts = [], setSyncing, onRefresh }) {
   const [form, setForm] = useState({
     name: '', sku: '', serial_number: '', condition: 'Good',
     purchase_cost: '', status: 'In Stock', purchase_date: today(), notes: ''
@@ -161,6 +161,7 @@ export default function Inventory({ inventory, orders = [], parts = [], repairRe
           brand: pf.brand.trim() || null,
           color: pf.color.trim() || null,
           cost: charged,
+          sourced_from_inventory_id: item.id,
         })
       }
     } else {
@@ -503,9 +504,43 @@ export default function Inventory({ inventory, orders = [], parts = [], repairRe
   const availableParts = parts.filter(p => p.status === 'Available')
   const uniqueBrands = [...new Set(availableParts.map(p => p.brand).filter(Boolean))].sort()
 
-  // Parts History data — orders with order_type = 'part_sale'
+  // Parts History data — combine both paths
+  // Path A: sold separately → orders with order_type = 'part_sale'
   const partSaleOrders = orders.filter(o => o.order_type === 'part_sale')
-  const partSaleTotal = partSaleOrders.reduce((s, o) => s + parseFloat(o.gross_sale || 0), 0)
+  // Path B: used in a repair → repair_order_parts with sourced_from_inventory_id set
+  const repairSourcedParts = repairOrderParts.filter(p => p.sourced_from_inventory_id)
+
+  // Unified pull history rows for display
+  const allPullRows = [
+    ...partSaleOrders.map(o => ({
+      id: 'sale-' + o.id,
+      date: o.sale_date,
+      part_name: o.item_name?.replace(/ \(pulled from .*?\)$/, '') || o.item_name,
+      inventory_id: o.inventory_id,
+      destination: 'sale',
+      destination_label: o.platform || 'Orders',
+      revenue: parseFloat(o.gross_sale || 0),
+      notes: o.notes,
+    })),
+    ...repairSourcedParts.map(p => {
+      const ro = repairOrders.find(r => r.id === p.repair_order_id)
+      const label = ro
+        ? (ro.order_number || ro.customer_name || 'Repair #' + ro.id.slice(0, 6))
+        : 'Repair job'
+      return {
+        id: 'repair-' + p.id,
+        date: p.created_at?.slice(0, 10) || null,
+        part_name: `${p.brand ? p.brand + ' ' : ''}${p.part_name}${p.color ? ' — ' + p.color : ''}`,
+        inventory_id: p.sourced_from_inventory_id,
+        destination: 'repair',
+        destination_label: label,
+        revenue: parseFloat(p.cost || 0),
+        notes: null,
+      }
+    }),
+  ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+
+  const allPullTotal = allPullRows.reduce((s, r) => s + r.revenue, 0)
 
   return (
     <div>
@@ -513,7 +548,7 @@ export default function Inventory({ inventory, orders = [], parts = [], repairRe
       <div style={{ display:'flex', gap:4, marginBottom:'1rem', borderBottom:'2px solid var(--c-border)', paddingBottom:0 }}>
         {[
           { id: 'inventory', label: '📦 Inventory' },
-          { id: 'parts_history', label: `🪛 Parts Pulled${partSaleOrders.length > 0 ? ' (' + partSaleOrders.length + ')' : ''}` },
+          { id: 'parts_history', label: `🪛 Parts Pulled${allPullRows.length > 0 ? ' (' + allPullRows.length + ')' : ''}` },
         ].map(t => (
           <button
             key={t.id}
@@ -534,18 +569,17 @@ export default function Inventory({ inventory, orders = [], parts = [], repairRe
       {inventoryTab === 'parts_history' && (() => {
         // Group by donor unit (inventory_id)
         const byUnit = {}
-        partSaleOrders.forEach(o => {
-          const key = o.inventory_id || '__unknown__'
+        allPullRows.forEach(r => {
+          const key = r.inventory_id || '__unknown__'
           if (!byUnit[key]) {
             const inv = inventory.find(i => i.id === key)
-            byUnit[key] = { inv, orders: [] }
+            byUnit[key] = { inv, rows: [] }
           }
-          byUnit[key].orders.push(o)
+          byUnit[key].rows.push(r)
         })
         const unitEntries = Object.entries(byUnit).sort((a, b) => {
-          // Sort by most recent pull
-          const aMax = Math.max(...a[1].orders.map(o => new Date(o.sale_date || 0)))
-          const bMax = Math.max(...b[1].orders.map(o => new Date(o.sale_date || 0)))
+          const aMax = Math.max(...a[1].rows.map(r => new Date(r.date || 0)))
+          const bMax = Math.max(...b[1].rows.map(r => new Date(r.date || 0)))
           return bMax - aMax
         })
 
@@ -554,8 +588,8 @@ export default function Inventory({ inventory, orders = [], parts = [], repairRe
             {/* Summary stats */}
             <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:'1rem' }}>
               {[
-                { label:'Total parts sold', value: partSaleOrders.length, color:'var(--c-purple)' },
-                { label:'Total revenue', value: fmtMoney(partSaleTotal), color:'var(--c-green)' },
+                { label:'Total parts pulled', value: allPullRows.length, color:'var(--c-purple)' },
+                { label:'Total revenue', value: fmtMoney(allPullTotal), color:'var(--c-green)' },
                 { label:'Units pulled from', value: unitEntries.length, color:'var(--c-brand)' },
               ].map(m => (
                 <div key={m.label} className="stat-card">
@@ -565,18 +599,18 @@ export default function Inventory({ inventory, orders = [], parts = [], repairRe
               ))}
             </div>
 
-            {partSaleOrders.length === 0 ? (
+            {allPullRows.length === 0 ? (
               <div className="card">
                 <div className="empty">
                   <div className="empty-icon">🪛</div>
-                  No parts pulled yet. Use the <strong>Pull Part</strong> button on any inventory item to log a part sale.
+                  No parts pulled yet. Use the <strong>Pull Part</strong> button on any inventory item to log a part pull.
                 </div>
               </div>
             ) : (
               <>
                 {/* All pulls table */}
                 <div className="card" style={{ marginBottom:'1rem' }}>
-                  <div className="card-title" style={{ marginBottom:12 }}>All parts pulled — sold separately</div>
+                  <div className="card-title" style={{ marginBottom:12 }}>All parts pulled</div>
                   <div style={{ overflowX:'auto' }}>
                     <table className="data-table" style={{ fontSize:12 }}>
                       <thead>
@@ -584,22 +618,20 @@ export default function Inventory({ inventory, orders = [], parts = [], repairRe
                           <th>Date</th>
                           <th>Part</th>
                           <th>Donor unit</th>
-                          <th>Platform</th>
+                          <th>Destination</th>
                           <th>Revenue</th>
                           <th>Notes</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {[...partSaleOrders].sort((a, b) => new Date(b.sale_date) - new Date(a.sale_date)).map(o => {
-                          const inv = inventory.find(i => i.id === o.inventory_id)
+                        {allPullRows.map(r => {
+                          const inv = inventory.find(i => i.id === r.inventory_id)
                           return (
-                            <tr key={o.id}>
+                            <tr key={r.id}>
                               <td style={{ fontFamily:"'DM Mono',monospace", fontSize:11, whiteSpace:'nowrap' }}>
-                                {o.sale_date || '—'}
+                                {r.date || '—'}
                               </td>
-                              <td style={{ fontWeight:500 }}>
-                                {o.item_name?.replace(/ \(pulled from .*?\)$/, '') || '—'}
-                              </td>
+                              <td style={{ fontWeight:500 }}>{r.part_name || '—'}</td>
                               <td style={{ fontSize:11, color:'var(--c-text2)' }}>
                                 {inv ? (
                                   <span>
@@ -611,13 +643,16 @@ export default function Inventory({ inventory, orders = [], parts = [], repairRe
                                 )}
                               </td>
                               <td style={{ fontSize:11 }}>
-                                <span className="badge badge-gray">{o.platform || '—'}</span>
+                                {r.destination === 'repair'
+                                  ? <span className="badge badge-brand">🔧 {r.destination_label}</span>
+                                  : <span className="badge badge-gray">🛒 {r.destination_label}</span>
+                                }
                               </td>
-                              <td style={{ fontFamily:"'DM Mono',monospace", fontWeight:600, color:'var(--c-green)' }}>
-                                {fmtMoney(o.gross_sale)}
+                              <td style={{ fontFamily:"'DM Mono',monospace", fontWeight:600, color: r.revenue > 0 ? 'var(--c-green)' : 'var(--c-text3)' }}>
+                                {r.revenue > 0 ? fmtMoney(r.revenue) : '—'}
                               </td>
                               <td style={{ fontSize:11, color:'var(--c-text3)', maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                                {o.notes || '—'}
+                                {r.notes || '—'}
                               </td>
                             </tr>
                           )
@@ -627,7 +662,7 @@ export default function Inventory({ inventory, orders = [], parts = [], repairRe
                         <tr style={{ borderTop:'2px solid var(--c-border)' }}>
                           <td colSpan={4} style={{ fontSize:12, fontWeight:600, color:'var(--c-text2)', paddingTop:8 }}>Total</td>
                           <td style={{ fontFamily:"'DM Mono',monospace", fontWeight:700, color:'var(--c-green)', paddingTop:8 }}>
-                            {fmtMoney(partSaleTotal)}
+                            {fmtMoney(allPullTotal)}
                           </td>
                           <td />
                         </tr>
@@ -652,9 +687,9 @@ export default function Inventory({ inventory, orders = [], parts = [], repairRe
                         </tr>
                       </thead>
                       <tbody>
-                        {unitEntries.map(([key, { inv, orders: uOrders }]) => {
-                          const uRevenue = uOrders.reduce((s, o) => s + parseFloat(o.gross_sale || 0), 0)
-                          const lastPull = uOrders.map(o => o.sale_date).filter(Boolean).sort().reverse()[0]
+                        {unitEntries.map(([key, { inv, rows: uRows }]) => {
+                          const uRevenue = uRows.reduce((s, r) => s + r.revenue, 0)
+                          const lastPull = uRows.map(r => r.date).filter(Boolean).sort().reverse()[0]
                           return (
                             <tr key={key}>
                               <td style={{ fontWeight:500 }}>
@@ -666,9 +701,9 @@ export default function Inventory({ inventory, orders = [], parts = [], repairRe
                               <td>
                                 {inv ? statusBadge(inv.status) : <span style={{ color:'var(--c-text3)' }}>—</span>}
                               </td>
-                              <td style={{ color:'var(--c-text2)' }}>{uOrders.length}</td>
-                              <td style={{ fontFamily:"'DM Mono',monospace", fontWeight:600, color:'var(--c-green)' }}>
-                                {fmtMoney(uRevenue)}
+                              <td style={{ color:'var(--c-text2)' }}>{uRows.length}</td>
+                              <td style={{ fontFamily:"'DM Mono',monospace", fontWeight:600, color: uRevenue > 0 ? 'var(--c-green)' : 'var(--c-text3)' }}>
+                                {uRevenue > 0 ? fmtMoney(uRevenue) : '—'}
                               </td>
                               <td style={{ fontSize:11, color:'var(--c-text3)', fontFamily:"'DM Mono',monospace" }}>
                                 {lastPull || '—'}
