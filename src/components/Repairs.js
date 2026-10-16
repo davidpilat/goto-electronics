@@ -209,12 +209,14 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
   })
   const filtered = activeTab === 'awaiting' ? filteredAwaiting : activeTab === 'completed' ? filteredCompleted : filteredActive
 
-  // Summary stats
-  const totalRevenue = repairOrders.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
+  // Summary stats — only count Shipped (completed) orders toward revenue/profit
+  const shippedOrders = repairOrders.filter(r => r.status === 'Shipped')
+  const shippedOrderIds = new Set(shippedOrders.map(r => r.id))
+  const totalRevenue = shippedOrders.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
   const totalQuoted = repairOrders.filter(r => r.status !== 'Shipped').reduce((s,r) => s + parseFloat(r.quoted_price||0), 0)
-  const totalShipping = repairOrders.reduce((s,r) => s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0), 0)
-  const totalSellingFees = repairOrders.reduce((s,r) => s + parseFloat(r.selling_fee||0), 0)
-  const totalPartsCost = repairOrderParts.reduce((s,p) => s + parseFloat(p.cost||0), 0)
+  const totalShipping = shippedOrders.reduce((s,r) => s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0), 0)
+  const totalSellingFees = shippedOrders.reduce((s,r) => s + parseFloat(r.selling_fee||0), 0)
+  const totalPartsCost = repairOrderParts.filter(p => shippedOrderIds.has(p.repair_order_id)).reduce((s,p) => p.sourced_from_inventory_id ? s : s + parseFloat(p.cost||0), 0)
   const totalProfit = totalRevenue - totalShipping - totalSellingFees - totalPartsCost
   const activeCount = repairOrders.filter(r => r.status !== 'Shipped').length
 
@@ -439,7 +441,7 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
             ? <div className="empty"><div className="empty-icon">🔧</div>{activeTab === 'awaiting' ? 'No repairs awaiting payment.' : activeTab === 'completed' ? 'No completed repairs yet.' : 'No active repair orders.'}</div>
             : filtered.map(r => {
                 const orderParts = repairOrderParts.filter(p => p.repair_order_id === r.id)
-                const partsCost = orderParts.reduce((s,p) => s+parseFloat(p.cost||0), 0)
+                const partsCost = orderParts.reduce((s,p) => p.sourced_from_inventory_id ? s : s+parseFloat(p.cost||0), 0)
                 const profit = parseFloat(r.repair_price||0) - parseFloat(r.shipping_cost||0) - parseFloat(r.return_shipping||0) - parseFloat(r.selling_fee||0) - partsCost
                 const isExpanded = expandedId === r.id
                 const isEditing = editId === r.id
@@ -596,6 +598,14 @@ export default function Repairs({ repairOrders, repairOrderParts, parts = [], se
                             </div>
                             {parseFloat(r.quoted_price||0) > 0 && parseFloat(r.repair_price||0) > 0 && (
                               <div style={{ fontSize:11, color:'var(--c-text3)' }}>Quoted: {fmtMoney(r.quoted_price)}</div>
+                            )}
+                            {parseFloat(r.repair_price||0) > 0 && (
+                              <div style={{ fontSize:11, color:'var(--c-text3)', lineHeight:1.7, marginTop:2 }}>
+                                {parseFloat(r.shipping_cost||0) > 0 && <div>− {fmtMoney(r.shipping_cost)} inbound ship</div>}
+                                {parseFloat(r.return_shipping||0) > 0 && <div>− {fmtMoney(r.return_shipping)} return ship</div>}
+                                {parseFloat(r.selling_fee||0) > 0 && <div>− {fmtMoney(r.selling_fee)} platform fee</div>}
+                                {partsCost > 0 && <div>− {fmtMoney(partsCost)} parts ({orderParts.length})</div>}
+                              </div>
                             )}
                             <div style={{ fontSize:11, color:'var(--c-text3)' }}>{r.received_date}</div>
                           </div>
