@@ -41,7 +41,7 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
       const netRevenue = grossSale - sellingFees - adFees - shippingCost
       const grossProfit = grossSale - itemCostFromOrders
       const netProfit = netRevenue - itemCostFromOrders
-      const margin = grossSale > 0 ? (netProfit/grossSale*100) : 0
+      const margin = netRevenue > 0 ? (netProfit/netRevenue*100) : 0
       const inStockItems = g.invItems.filter(i => i.status === 'In Stock' || i.status === 'Listed')
       const soldOrders = g.matchedOrders.filter(o => parseFloat(o.gross_sale||0) > 0)
       const avgSellingPrice = soldOrders.length > 0 ? grossSale / soldOrders.length : 0
@@ -81,7 +81,7 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
     const bizExp = me.reduce((s,e) => s+parseFloat(e.amount||0), 0)
     const net = gross - fees - shipping
     const profit = net - itemCost - bizExp
-    const margin = gross > 0 ? (profit/gross*100) : 0
+    const margin = net > 0 ? (profit/net*100) : 0
 
     return { name, gross:Math.round(gross), net:Math.round(net), fees:Math.round(fees+shipping), itemCost:Math.round(itemCost), bizExp:Math.round(bizExp), profit:Math.round(profit), margin:parseFloat(margin.toFixed(1)), orders:mo.length }
   })
@@ -103,16 +103,16 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
   const totalShippingCost = orders.reduce((s, o) => s + parseFloat(o.shipping_cost||0), 0)
   const realizedProfit = totals.gross - totalSellingFees - totalShippingCost - totalInventoryCost - totalPartsCost - totalSuppliesCost
 
-  const avgMargin = totals.gross > 0 ? (totals.profit/totals.gross*100).toFixed(1) : 0
+  const avgMargin = totals.net > 0 ? (totals.profit/totals.net*100).toFixed(1) : 0
 
-  // Repair revenue — only count Complete or Shipped orders
-  const completedRepairs = repairOrders.filter(r => r.status === 'Complete' || r.status === 'Shipped')
+  // Repair revenue — only count Shipped orders (fully realized)
+  const completedRepairs = repairOrders.filter(r => r.status === 'Shipped')
   const completedRepairIds = new Set(completedRepairs.map(r => r.id))
   const repairRevenue = completedRepairs.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
   const repairShipping = completedRepairs.reduce((s,r) => s + parseFloat(r.shipping_cost||0), 0)
   const repairReturnShipping = completedRepairs.reduce((s,r) => s + parseFloat(r.return_shipping||0), 0)
   const repairSellingFees = completedRepairs.reduce((s,r) => s + parseFloat(r.selling_fee||0), 0)
-  const repairPartsCost = repairOrderParts.filter(p => completedRepairIds.has(p.repair_order_id)).reduce((s,p) => s + parseFloat(p.cost||0), 0)
+  const repairPartsCost = repairOrderParts.filter(p => completedRepairIds.has(p.repair_order_id) && !p.sourced_from_inventory_id).reduce((s,p) => s + parseFloat(p.cost||0), 0)
   const repairProfit = repairRevenue - repairShipping - repairReturnShipping - repairSellingFees - repairPartsCost
   const combinedGross = totals.gross + repairRevenue
   const combinedProfit = totals.profit + repairProfit
