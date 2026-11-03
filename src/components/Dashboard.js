@@ -26,81 +26,35 @@ export default function Dashboard({ orders, inventory, expenses, repairOrders = 
   const filteredOrders = orders.filter(o => filterDate(o.sale_date))
   const filteredExpenses = expenses.filter(e => filterDate(e.expense_date))
 
-  // Previous period for comparison
-  const filterPrev = (dateStr) => {
-    if (!dateStr) return false
-    const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number)
-    if (period === 'month') {
-      const prevMonth = today.getMonth() === 0 ? 11 : today.getMonth() - 1
-      const prevYear = today.getMonth() === 0 ? today.getFullYear() - 1 : today.getFullYear()
-      return m - 1 === prevMonth && y === prevYear
-    }
-    if (period === 'quarter') {
-      const prevQ = Math.floor(today.getMonth() / 3) - 1
-      if (prevQ < 0) return Math.floor((m - 1) / 3) === 3 && y === today.getFullYear() - 1
-      return Math.floor((m - 1) / 3) === prevQ && y === today.getFullYear()
-    }
-    return y === today.getFullYear() - 1
-  }
-  const prevOrders = orders.filter(o => filterPrev(o.sale_date))
-  const prevExpenses = expenses.filter(e => filterPrev(e.expense_date))
-  const prevGross = prevOrders.reduce((s,o) => s + parseFloat(o.gross_sale||0), 0)
-  const prevFees = prevOrders.reduce((s,o) => s + parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0), 0)
-  const prevShipping = prevOrders.reduce((s,o) => s + parseFloat(o.shipping_cost||0), 0)
-  const prevItemCost = prevOrders.reduce((s,o) => s + parseFloat(o.item_cost||0), 0)
-  const prevBizExp = prevExpenses.reduce((s,e) => s + parseFloat(e.amount||0), 0)
-  const prevNet = prevGross - prevFees - prevShipping
-  const prevProfit = prevNet - prevItemCost - prevBizExp
-
-  const momPct = (curr, prev) => {
-    if (prev === 0) return curr > 0 ? '+∞' : null
-    const pct = ((curr - prev) / Math.abs(prev) * 100).toFixed(1)
-    return (curr >= prev ? '+' : '') + pct + '%'
-  }
-  const momColor = (curr, prev) => curr >= prev ? 'var(--c-green)' : 'var(--c-red)'
-  const prevLabel = period === 'month' ? 'vs last month' : period === 'quarter' ? 'vs last quarter' : 'vs last year'
-
+  // Regular (product) orders
   const grossRevenue = filteredOrders.reduce((s, o) => s + parseFloat(o.gross_sale||0), 0)
   const totalFees = filteredOrders.reduce((s, o) => s + parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0), 0)
   const totalShipping = filteredOrders.reduce((s, o) => s + parseFloat(o.shipping_cost||0), 0)
   const totalItemCost = filteredOrders.reduce((s, o) => s + parseFloat(o.item_cost||0), 0)
   const totalBizExpenses = filteredExpenses.reduce((s, e) => s + parseFloat(e.amount||0), 0)
   const netRevenue = grossRevenue - totalFees - totalShipping
-  const totalProfit = netRevenue - totalItemCost - totalBizExpenses
-  const margin = grossRevenue > 0 ? ((totalProfit / grossRevenue) * 100).toFixed(1) : 0
+
+  // Repair orders — only count Shipped (completed)
+  const filteredRepairs = repairOrders.filter(r => r.status === 'Shipped' && filterDate(r.shipped_date || r.completed_date || r.created_at))
+  const filteredRepairIds = new Set(filteredRepairs.map(r => r.id))
+  const repairRevenue = filteredRepairs.reduce((s, r) => s + parseFloat(r.repair_price||0), 0)
+  const repairShipping = filteredRepairs.reduce((s, r) => s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0), 0)
+  const repairFees = filteredRepairs.reduce((s, r) => s + parseFloat(r.selling_fee||0), 0)
+  const repairPartsCost = repairOrderParts
+    .filter(p => filteredRepairIds.has(p.repair_order_id) && !p.sourced_from_inventory_id)
+    .reduce((s, p) => s + parseFloat(p.cost||0), 0)
+  const repairNetRevenue = repairRevenue - repairShipping - repairFees
+  const repairProfit = repairNetRevenue - repairPartsCost
+
+  // Combined
+  const combinedGross = grossRevenue + repairRevenue
+  const combinedNetRevenue = netRevenue + repairNetRevenue
+  const totalProfit = netRevenue - totalItemCost - totalBizExpenses + repairProfit
+  const margin = combinedNetRevenue > 0 ? ((totalProfit / combinedNetRevenue) * 100).toFixed(1) : 0
   const avgOrderValue = filteredOrders.length > 0 ? grossRevenue / filteredOrders.length : 0
 
   const inStock = inventory.filter(i => i.status === 'In Stock').length
   const inventoryValue = inventory.filter(i => i.status === 'In Stock').reduce((s, i) => s + parseFloat(i.purchase_cost||0) + parseFloat(i.parts_cost||0), 0)
-
-  // Repair totals — completed/shipped only, filtered by period
-  const filteredRepairs = repairOrders.filter(r =>
-    (r.status === 'Complete' || r.status === 'Shipped') && filterDate(r.received_date)
-  )
-  const repairRevenue = filteredRepairs.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
-  const repairCosts = filteredRepairs.reduce((s,r) =>
-    s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0) + parseFloat(r.selling_fee||0), 0)
-  const filteredRepairIds = new Set(filteredRepairs.map(r => r.id))
-  const repairPartsCost = repairOrderParts.filter(p => filteredRepairIds.has(p.repair_order_id)).reduce((s,p) => s + parseFloat(p.cost||0), 0)
-  const repairProfit = repairRevenue - repairCosts - repairPartsCost
-
-  // Previous period repairs
-  const prevRepairs = repairOrders.filter(r =>
-    (r.status === 'Complete' || r.status === 'Shipped') && filterPrev(r.received_date)
-  )
-  const prevRepairRevenue = prevRepairs.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
-  const prevRepairCosts = prevRepairs.reduce((s,r) =>
-    s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0) + parseFloat(r.selling_fee||0), 0)
-  const prevRepairIds = new Set(prevRepairs.map(r => r.id))
-  const prevRepairPartsCost = repairOrderParts.filter(p => prevRepairIds.has(p.repair_order_id)).reduce((s,p) => s + parseFloat(p.cost||0), 0)
-  const prevRepairProfit = prevRepairRevenue - prevRepairCosts - prevRepairPartsCost
-
-  // Combined totals
-  const combinedGross = grossRevenue + repairRevenue
-  const combinedProfit = totalProfit + repairProfit
-  const combinedMargin = combinedGross > 0 ? ((combinedProfit / combinedGross) * 100).toFixed(1) : 0
-  const prevCombinedGross = prevGross + prevRepairRevenue
-  const prevCombinedProfit = prevProfit + prevRepairProfit
 
   // Monthly trend for current year
   const monthlyData = MONTHS.map((name, i) => {
@@ -109,39 +63,40 @@ export default function Dashboard({ orders, inventory, expenses, repairOrders = 
       const [y, m] = o.sale_date.slice(0, 10).split('-').map(Number)
       return m - 1 === i && y === today.getFullYear()
     })
-    const monthRepairs = repairOrders.filter(r => {
-      if (!r.received_date || (r.status !== 'Complete' && r.status !== 'Shipped')) return false
-      const [y, m] = r.received_date.slice(0, 10).split('-').map(Number)
-      return m - 1 === i && y === today.getFullYear()
-    })
     const monthExpenses = expenses.filter(e => {
       if (!e.expense_date) return false
       const [y, m] = e.expense_date.slice(0, 10).split('-').map(Number)
       return m - 1 === i && y === today.getFullYear()
     })
+    const monthRepairs = repairOrders.filter(r => {
+      if (r.status !== 'Shipped') return false
+      const dateStr = r.shipped_date || r.completed_date || r.created_at
+      if (!dateStr) return false
+      const [y, m] = dateStr.slice(0, 10).split('-').map(Number)
+      return m - 1 === i && y === today.getFullYear()
+    })
+    const monthRepairIds = new Set(monthRepairs.map(r => r.id))
     const gross = monthOrders.reduce((s, o) => s + parseFloat(o.gross_sale||0), 0)
-    const rRepair = monthRepairs.reduce((s,r) => s + parseFloat(r.repair_price||0), 0)
     const fees = monthOrders.reduce((s, o) => s + parseFloat(o.selling_fee||0) + parseFloat(o.ad_fee||0) + parseFloat(o.shipping_cost||0), 0)
-    const repairCosts = monthRepairs.reduce((s,r) => s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0) + parseFloat(r.selling_fee||0), 0)
     const cost = monthOrders.reduce((s, o) => s + parseFloat(o.item_cost||0), 0)
     const exp = monthExpenses.reduce((s, e) => s + parseFloat(e.amount||0), 0)
-    const profit = gross + rRepair - fees - repairCosts - cost - exp
-    return { name, revenue: Math.round(gross + rRepair), profit: Math.round(profit) }
+    const rGross = monthRepairs.reduce((s, r) => s + parseFloat(r.repair_price||0), 0)
+    const rCosts = monthRepairs.reduce((s, r) => s + parseFloat(r.shipping_cost||0) + parseFloat(r.return_shipping||0) + parseFloat(r.selling_fee||0), 0)
+    const rParts = repairOrderParts.filter(p => monthRepairIds.has(p.repair_order_id) && !p.sourced_from_inventory_id).reduce((s, p) => s + parseFloat(p.cost||0), 0)
+    const profit = (gross - fees - cost - exp) + (rGross - rCosts - rParts)
+    return { name, revenue: Math.round(gross + rGross), profit: Math.round(profit) }
   })
 
-  // Platform breakdown — resale orders + repairs as "Repair Services"
-  const platformAcc = filteredOrders.reduce((acc, o) => {
-    const p = o.platform || 'Other'
-    if (!acc[p]) acc[p] = { revenue: 0, count: 0, type: 'resale' }
-    acc[p].revenue += parseFloat(o.gross_sale||0)
-    acc[p].count += 1
-    return acc
-  }, {})
-  if (filteredRepairs.length > 0) {
-    platformAcc['Repair Services'] = { revenue: repairRevenue, count: filteredRepairs.length, type: 'repair' }
-  }
-  const platformData = Object.entries(platformAcc)
-    .map(([name, d]) => ({ name, revenue: d.revenue, count: d.count, type: d.type }))
+  // Platform breakdown — built from actual order data, not hardcoded list
+  const platformData = Object.entries(
+    filteredOrders.reduce((acc, o) => {
+      const p = o.platform || 'Other'
+      if (!acc[p]) acc[p] = { revenue: 0, count: 0 }
+      acc[p].revenue += parseFloat(o.gross_sale||0)
+      acc[p].count += 1
+      return acc
+    }, {})
+  ).map(([name, d]) => ({ name, revenue: d.revenue, count: d.count }))
     .sort((a, b) => b.revenue - a.revenue)
 
   const PLATFORM_COLORS = ['#0ea5e9','#16a34a','#d97706','#7c3aed','#dc2626','#6b7280']
@@ -172,40 +127,22 @@ export default function Dashboard({ orders, inventory, expenses, repairOrders = 
         <div className="stat-card">
           <div className="stat-label">Gross revenue</div>
           <div className="stat-value stat-brand">{fmtMoney(combinedGross)}</div>
-          <div className="stat-sub" style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <span>{filteredOrders.length} orders{filteredRepairs.length > 0 ? ` · ${filteredRepairs.length} repairs` : ''} · {periodLabel}</span>
-            {momPct(combinedGross, prevCombinedGross) && <span style={{ fontWeight:600, color: momColor(combinedGross, prevCombinedGross) }}>{momPct(combinedGross, prevCombinedGross)}</span>}
-          </div>
-          {prevCombinedGross > 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevCombinedGross)}{repairRevenue > 0 ? ` · repairs: ${fmtMoney(repairRevenue)}` : ''}</div>}
+          <div className="stat-sub">{filteredOrders.length} orders + {filteredRepairs.length} repairs · {periodLabel}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Net revenue</div>
-          <div className="stat-value">{fmtMoney(netRevenue)}</div>
-          <div className="stat-sub" style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <span>After fees & shipping</span>
-            {momPct(netRevenue, prevNet) && <span style={{ fontWeight:600, color: momColor(netRevenue, prevNet) }}>{momPct(netRevenue, prevNet)}</span>}
-          </div>
-          {prevNet > 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevNet)}</div>}
+          <div className="stat-value">{fmtMoney(combinedNetRevenue)}</div>
+          <div className="stat-sub">After fees & shipping</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Total profit</div>
-          <div className={`stat-value ${combinedProfit >= 0 ? 'stat-green' : 'stat-red'}`}>{fmtMoney(combinedProfit)}</div>
-          <div className="stat-sub" style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <span>{combinedMargin}% margin</span>
-            {momPct(combinedProfit, prevCombinedProfit) && <span style={{ fontWeight:600, color: momColor(combinedProfit, prevCombinedProfit) }}>{momPct(combinedProfit, prevCombinedProfit)}</span>}
-          </div>
-          {prevCombinedProfit !== 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevCombinedProfit)}</div>}
+          <div className={`stat-value ${totalProfit >= 0 ? 'stat-green' : 'stat-red'}`}>{fmtMoney(totalProfit)}</div>
+          <div className="stat-sub">{margin}% margin (of net revenue)</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Avg order value</div>
           <div className="stat-value">{fmtMoney(avgOrderValue)}</div>
-          <div className="stat-sub" style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <span>Per resale</span>
-            {prevOrders.length > 0 && momPct(avgOrderValue, prevGross/prevOrders.length) && (
-              <span style={{ fontWeight:600, color: momColor(avgOrderValue, prevGross/prevOrders.length) }}>{momPct(avgOrderValue, prevGross/prevOrders.length)}</span>
-            )}
-          </div>
-          {prevOrders.length > 0 && <div style={{ fontSize:11, color:'var(--c-text3)', marginTop:2 }}>{prevLabel}: {fmtMoney(prevGross/prevOrders.length)} · {prevOrders.length} orders</div>}
+          <div className="stat-sub">Per sale</div>
         </div>
       </div>
 
@@ -251,9 +188,9 @@ export default function Dashboard({ orders, inventory, expenses, repairOrders = 
             ? <div className="empty"><div className="empty-icon">📦</div>No sales yet</div>
             : platformData.map((p, i) => (
               <div key={p.name} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:'1px solid var(--c-border)', fontSize:13 }}>
-                <div style={{ width:8, height:8, borderRadius:2, background: p.type === 'repair' ? 'var(--c-purple)' : PLATFORM_COLORS[i%PLATFORM_COLORS.length], flexShrink:0 }} />
-                <span style={{ flex:1 }}>{p.type === 'repair' ? '🔧 ' : ''}{p.name}</span>
-                <span style={{ color:'var(--c-text2)', fontSize:12 }}>{p.count} {p.type === 'repair' ? 'repairs' : 'sales'}</span>
+                <div style={{ width:8, height:8, borderRadius:2, background:PLATFORM_COLORS[i%PLATFORM_COLORS.length], flexShrink:0 }} />
+                <span style={{ flex:1 }}>{p.name}</span>
+                <span style={{ color:'var(--c-text2)', fontSize:12 }}>{p.count} sales</span>
                 <span className="mono" style={{ fontWeight:500 }}>{fmtMoney(p.revenue)}</span>
               </div>
             ))
