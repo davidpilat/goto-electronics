@@ -175,6 +175,7 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
       <div className="stat-grid" style={{ marginBottom:'1rem' }}>
         {[
           { label:'Total sales', value:fmtMoney(totals.gross), color:'var(--c-brand)' },
+          { label:'Total revenue (net)', value:fmtMoney(totals.net), color:'var(--c-brand)', sub:'After fees & shipping' },
           { label:'Realized profit', value:fmtMoney(realizedProfit), color:realizedProfit>=0?'var(--c-green)':'var(--c-red)' },
           { label:'Avg margin', value:`${avgMargin}%`, color:parseFloat(avgMargin)>=20?'var(--c-green)':'var(--c-amber)' },
           { label:'Total orders', value:totals.orders, color:'var(--c-text)' },
