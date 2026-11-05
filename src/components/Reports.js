@@ -190,56 +190,68 @@ export default function Reports({ orders, expenses, inventory = [], parts = [], 
         ))}
       </div>
 
-      {/* Cost & Revenue breakdown */}
+      {/* Cost & Revenue breakdown — two profit methods side by side */}
       <div className="card" style={{ marginBottom:'1rem' }}>
-        <div className="card-title">Cost & Revenue breakdown</div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' }}>
-          {/* Left: Revenue waterfall */}
+        <div className="card-title">Profit breakdown</div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1.5rem' }}>
+
+          {/* Method 1: Sales-based profit (year-filtered, uses item_cost on each order) */}
           <div>
-            <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--c-text3)', marginBottom:8 }}>Sales</div>
+            <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--c-text3)', marginBottom:4 }}>Method 1 — Sales profit</div>
+            <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:10 }}>Uses the item cost recorded on each sale. Only counts {year} orders & expenses.</div>
             {[
-              { label:'Total sales (gross)', value:totals.gross, color:'var(--c-text)', bold:true },
-              { label:'− Selling fees', value:totalSellingFees, color:'var(--c-amber)' },
-              { label:'− Shipping costs', value:totalShippingCost, color:'var(--c-amber)' },
+              { label:'Gross sales', value:totals.gross, color:'var(--c-text)', bold:true },
+              { label:'− Selling + ad fees', value:totals.fees, color:'var(--c-amber)' },
+              { label:'= Net revenue', value:totals.net, color:'var(--c-text)', bold:true, borderTop:true },
+              { label:'− Item cost (from orders)', value:totals.itemCost, color:'var(--c-amber)', note:'cost logged on each sale' },
+              { label:'− Business expenses', value:totals.bizExp, color:'var(--c-amber)', note:`${year} only` },
             ].map(row => (
-              <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderBottom:'1px solid var(--c-border)' }}>
-                <span style={{ fontSize:13, color:'var(--c-text2)', fontWeight:row.bold?600:400 }}>{row.label}</span>
-                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:row.bold?700:500, color:row.color }}>{fmtMoney(row.value)}</span>
-              </div>
-            ))}
-            <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--c-text3)', margin:'14px 0 8px' }}>Costs</div>
-            {[
-              { label:'Total inventory cost', value:totalInventoryCost, color:'var(--c-amber)' },
-              { label:'Total parts cost', value:totalPartsCost, color:'var(--c-amber)' },
-              { label:'Total supplies cost', value:totalSuppliesCost, color:'var(--c-amber)' },
-            ].map(row => (
-              <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'7px 0', borderBottom:'1px solid var(--c-border)' }}>
-                <span style={{ fontSize:13, color:'var(--c-text2)' }}>{row.label}</span>
-                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:500, color:row.color }}>{fmtMoney(row.value)}</span>
-              </div>
-            ))}
-          </div>
-          {/* Right: Realized profit summary */}
-          <div style={{ display:'flex', flexDirection:'column', justifyContent:'center', gap:0 }}>
-            <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--c-text3)', marginBottom:8 }}>Realized Profit</div>
-            {[
-              { label:'Total sales', value:totals.gross, color:'var(--c-text)' },
-              { label:'− Selling fees', value:totalSellingFees, color:'var(--c-amber)' },
-              { label:'− Shipping costs', value:totalShippingCost, color:'var(--c-amber)' },
-              { label:'− Inventory cost', value:totalInventoryCost, color:'var(--c-amber)' },
-              { label:'− Parts cost', value:totalPartsCost, color:'var(--c-amber)' },
-              { label:'− Supplies cost', value:totalSuppliesCost, color:'var(--c-amber)' },
-            ].map(row => (
-              <div key={row.label} style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottom:'1px solid var(--c-border)' }}>
-                <span style={{ fontSize:12, color:'var(--c-text2)' }}>{row.label}</span>
-                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, color:row.color }}>{fmtMoney(row.value)}</span>
+              <div key={row.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', padding:'6px 0', borderTop:row.borderTop?'1px solid var(--c-border)':undefined, borderBottom:'1px solid var(--c-border)' }}>
+                <div>
+                  <span style={{ fontSize:12, color:'var(--c-text2)', fontWeight:row.bold?600:400 }}>{row.label}</span>
+                  {row.note && <div style={{ fontSize:10, color:'var(--c-text3)' }}>{row.note}</div>}
+                </div>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:row.bold?700:500, color:row.color }}>{fmtMoney(row.value)}</span>
               </div>
             ))}
             <div style={{ display:'flex', justifyContent:'space-between', padding:'10px 0 4px', marginTop:4, borderTop:'2px solid var(--c-border)' }}>
-              <span style={{ fontSize:14, fontWeight:700, color:'var(--c-text)' }}>= Realized profit</span>
-              <span style={{ fontFamily:"'DM Mono',monospace", fontSize:16, fontWeight:700, color:realizedProfit>=0?'var(--c-green)':'var(--c-red)' }}>{fmtMoney(realizedProfit)}</span>
+              <div>
+                <span style={{ fontSize:13, fontWeight:700, color:'var(--c-text)' }}>= Sales profit</span>
+                <div style={{ fontSize:10, color:'var(--c-text3)' }}>gross − fees − item cost − biz exp</div>
+              </div>
+              <span style={{ fontFamily:"'DM Mono',monospace", fontSize:15, fontWeight:700, color:totals.profit>=0?'var(--c-green)':'var(--c-red)' }}>{fmtMoney(totals.profit)}</span>
             </div>
           </div>
+
+          {/* Method 2: Realized profit (all-time costs, uses actual purchase/expense records) */}
+          <div>
+            <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--c-text3)', marginBottom:4 }}>Method 2 — Realized profit</div>
+            <div style={{ fontSize:11, color:'var(--c-text3)', marginBottom:10 }}>Uses actual purchase records. Includes all inventory ever bought — not just {year} sales.</div>
+            {[
+              { label:'Gross sales', value:totals.gross, color:'var(--c-text)', bold:true },
+              { label:'− Selling fees', value:totalSellingFees, color:'var(--c-amber)', note:'from order records' },
+              { label:'− Shipping costs', value:totalShippingCost, color:'var(--c-amber)', note:'from order records' },
+              { label:'− Inventory purchase cost', value:totalInventoryCost, color:'var(--c-amber)', note:'all inventory ever bought' },
+              { label:'− Parts expenses', value:totalPartsCost, color:'var(--c-amber)', note:'biz expenses: Parts category' },
+              { label:'− Supplies expenses', value:totalSuppliesCost, color:'var(--c-amber)', note:'biz expenses: Supplies category' },
+            ].map(row => (
+              <div key={row.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', padding:'6px 0', borderBottom:'1px solid var(--c-border)' }}>
+                <div>
+                  <span style={{ fontSize:12, color:'var(--c-text2)', fontWeight:row.bold?600:400 }}>{row.label}</span>
+                  {row.note && <div style={{ fontSize:10, color:'var(--c-text3)' }}>{row.note}</div>}
+                </div>
+                <span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:row.bold?700:500, color:row.color }}>{fmtMoney(row.value)}</span>
+              </div>
+            ))}
+            <div style={{ display:'flex', justifyContent:'space-between', padding:'10px 0 4px', marginTop:4, borderTop:'2px solid var(--c-border)' }}>
+              <div>
+                <span style={{ fontSize:13, fontWeight:700, color:'var(--c-text)' }}>= Realized profit</span>
+                <div style={{ fontSize:10, color:'var(--c-text3)' }}>gross − fees − ship − all inventory & expense costs</div>
+              </div>
+              <span style={{ fontFamily:"'DM Mono',monospace", fontSize:15, fontWeight:700, color:realizedProfit>=0?'var(--c-green)':'var(--c-red)' }}>{fmtMoney(realizedProfit)}</span>
+            </div>
+          </div>
+
         </div>
       </div>
 
